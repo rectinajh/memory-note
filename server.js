@@ -586,12 +586,14 @@ export function createServer() {
   });
 }
 
+const server = createServer();
+export default server;
+
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-if (isMain) {
-  loadEnvFile();
+if (isMain || process.env.VERCEL) {
+  if (isMain) loadEnvFile();
   const port = Number(process.env.PORT || 8787);
-  const host = process.env.HOST || "127.0.0.1";
-  const server = createServer();
+  const host = process.env.HOST || (process.env.VERCEL ? "0.0.0.0" : "127.0.0.1");
   server.listen(port, host, () => {
     const where = host === "0.0.0.0" ? `http://0.0.0.0:${port}` : `http://127.0.0.1:${port}`;
     const keyState = hasKey() ? "key loaded from the environment (not printed)" : "no ASSEMBLYAI_API_KEY, speech and questions unavailable";
