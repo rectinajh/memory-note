@@ -2,12 +2,34 @@
 
 ### Verbatim or nothing.
 
-The photo’s been in the drawer for years.  
-You still don’t have the first sentence.  
-And you’re not letting an app **ghost-write** the people in it.
+### Background
 
-**Memory Card** sits with **one** old picture. It **asks**. You **talk**. It **stops** when you cut in.  
-The card is not a story—it’s a **stack of your own lines**, cut straight from the transcript, sealed only after you say **yes**.
+You already have the photo—the shoebox, the phone roll, the one frame you keep meaning to explain.  
+The story is still in your head: half a name, a courtyard, a summer that won’t line up on a timeline.  
+You do not need another app that wants you back tomorrow, a feed, or a page that turns family into content.
+
+### The pain
+
+| | |
+|--|--|
+| **Blank** | You open the picture and the first sentence never comes. |
+| **Blur** | Place and year feel wrong if software “polishes” them into facts. |
+| **Betrayal** | AI memoirs invent names, ties, scenes you never said—and sound confident doing it. |
+| **Noise** | Memorial chatbots, daily streaks, public walls—none of that is what you came for. |
+
+You wanted **one careful telling** and an artifact you can **close the laptop on**.
+
+### How we solve it
+
+**Memory Card** is a **voice interviewer**, not a writer. One photo. Short questions. **Barge-in** when you talk over it.
+
+- The model **asks**; the **server** decides what lands on the card.
+- A line is saved only as a **continuous quote** from your transcript—paraphrase gets **rejected**.
+- Fuzzy words stay **off** the card until you say them clearly again.
+- The assistant never speaks **as** someone in the photo.
+- The card is sealed only after a short **yes**—then you can **prove** every line with hashes (`proof.json`).
+
+Free to tell; see the card on screen. **$1** unlocks Markdown, proof, and a TikTok-ready clip (photo + your quotes only).
 
 ```
      ┌─────────────┐
@@ -29,11 +51,6 @@ The card is not a story—it’s a **stack of your own lines**, cut straight fro
 *Don’t trust the model. Verify the span.*
 
 ---
-
-## The itch
-
-You freeze at the frame. Names blur. Dates lie if software fills them in.  
-You wanted **one honest pass** and something you can **close the laptop on**—not another app that wants tomorrow.
 
 ## The rules (boring on purpose)
 
