@@ -18,9 +18,17 @@ import {
 import { chatComplete, hasKey, mintStreamingToken, parseCompletion, redact } from "./lib/aai.js";
 import { proofJson } from "./lib/proof.js";
 import { loadSession, persistSession } from "./lib/persist.js";
+import { deliverDueLetters, EXAMPLE_QUOTES, scheduleLetter, sealedMessage, validateLetter } from "./lib/letter.js";
+import { mailTransport } from "./lib/mail.js";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
-const publicDir = path.join(root, "public");
+
+function resolvePublicDir() {
+  const candidates = [path.join(root, "public"), path.join(process.cwd(), "public")];
+  return candidates.find((dir) => fs.existsSync(path.join(dir, "index.html"))) || candidates[0];
+}
+
+const publicDir = resolvePublicDir();
 
 function loadEnvFile() {
   let text;
@@ -48,7 +56,9 @@ function loadEnvFile() {
 }
 
 export function dataDir() {
-  return process.env.MEMORY_NOTE_DATA || path.join(root, "data");
+  if (process.env.MEMORY_NOTE_DATA) return process.env.MEMORY_NOTE_DATA;
+  if (process.env.VERCEL) return path.join("/tmp", "memory-note");
+  return path.join(root, "data");
 }
 
 const sessions = new Map();
@@ -64,6 +74,12 @@ function resolveSession(id) {
 
 function touchSession(session) {
   persistSession(dataDir(), session);
+}
+
+function publicPaymentUrl() {
+  const url = process.env.STRIPE_PAYMENT_LINK || "";
+  if (/^https:\/\/(buy\.stripe\.com|[\w.-]+\.lemonsqueezy\.com)\//.test(url)) return url;
+  return null;
 }
 
 function send(res, status, obj) {
@@ -199,10 +215,7 @@ async function runTurn(session, body) {
         args = {};
       }
       const out = applyTool(session, call.function.name, args);
-      const detail = out.ok
-        ? out.result.saved || out.result.flagged || (out.result.card ? "saved" : "ok")
-        : out.error;
-      toolLog.push({ name: call.function.name, ok: out.ok, detail });
+      toolLog.push(toolEntry(call.function.name, out));
       session.messages.push({
         role: "tool",
         tool_call_id: call.id,
@@ -221,22 +234,12 @@ async function runTurn(session, body) {
   const confirmed = toolLog.some((tool) => tool.name === "confirm_card" && tool.ok);
   if (!quoted && !confirmed) {
     const caught = captureStatement(session);
-    if (caught) {
-      toolLog.push({
-        name: "note_quote",
-        ok: caught.ok,
-        detail: caught.ok ? caught.result.saved : caught.error,
-      });
-    }
+    if (caught) toolLog.push(toolEntry("note_quote", caught));
   }
   if (!toolLog.some((tool) => tool.name === "confirm_card" && tool.ok)) {
     const agreed = confirmIfAgreed(session);
     if (agreed) {
-      toolLog.push({
-        name: "confirm_card",
-        ok: agreed.ok,
-        detail: agreed.ok ? "saved" : agreed.error,
-      });
+      toolLog.push(toolEntry("confirm_card", agreed));
       if (agreed.ok) say = "The card is ready. It contains only the quotes you confirmed.";
       else say = "Tell me one line about the photo first. Then say yes.";
     }
@@ -252,6 +255,19 @@ async function runTurn(session, body) {
     tools: toolLog,
     ...publicView(session),
   };
+}
+
+function toolEntry(name, out) {
+  const entry = {
+    name,
+    ok: out.ok,
+    detail: out.ok
+      ? out.result?.saved || out.result?.flagged || (out.result?.card ? "saved" : "ok")
+      : out.error,
+  };
+  if (out.rejected) entry.rejected = out.rejected;
+  if (out.heard) entry.heard = out.heard;
+  return entry;
 }
 
 function stripCardAudio(result) {
@@ -271,12 +287,39 @@ function writeCard(session) {
   if (proof) fs.writeFileSync(path.join(dir, `${session.id}.proof.json`), proof);
 }
 
+async function scheduleFromBody(req, { example = false, quotes = null, sessionId = null } = {}) {
+  let body;
+  try {
+    body = JSON.parse((await readBody(req, 20_000)).toString("utf8") || "{}");
+  } catch {
+    return { status: 400, body: { error: "Request is not JSON" } };
+  }
+  if (example && body.example !== true) {
+    return { status: 400, body: { error: "This letter needs a sealed card." } };
+  }
+  const checked = validateLetter({ email: body.email, deliverAt: body.deliverAt });
+  if (checked.error) return { status: 400, body: { error: checked.error } };
+  const kept = example ? EXAMPLE_QUOTES : quotes;
+  const saved = scheduleLetter(dataDir(), {
+    to: checked.to,
+    deliverAt: checked.at,
+    quotes: kept,
+    sessionId,
+  });
+  if (saved.error) return { status: 409, body: { error: saved.error } };
+  return { status: 201, body: { ok: true, message: sealedMessage(checked.to, checked.at) } };
+}
+
 async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/health") {
+    const paymentUrl = publicPaymentUrl();
     send(res, 200, {
       ok: true,
       app: "Memory Card",
       assemblyai: hasKey() ? "configured" : "missing",
+      payments: paymentUrl ? "link" : "demo",
+      paymentUrl,
+      mail: mailTransport() || "missing",
       hint: hasKey()
         ? null
         : "This process has no ASSEMBLYAI_API_KEY. Speech recognition and questions will not start. Put the key in .env, then restart.",
@@ -382,8 +425,14 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/letter") {
+    const scheduled = await scheduleFromBody(req, { example: true });
+    send(res, scheduled.status, scheduled.body);
+    return;
+  }
+
   const sessionMatch = url.pathname.match(
-    /^\/api\/session\/([0-9a-f-]{36})(\/turn|\/card\.md|\/proof\.json|\/unlock)?$/,
+    /^\/api\/session\/([0-9a-f-]{36})(\/turn|\/card\.md|\/proof\.json|\/unlock|\/letter)?$/,
   );
   if (sessionMatch) {
     const id = sessionMatch[1];
@@ -440,6 +489,15 @@ async function handleApi(req, res, url) {
         "Cache-Control": "no-store",
       });
       res.end(session.card.markdown);
+      return;
+    }
+    if (req.method === "POST" && tail === "/letter") {
+      if (!session.card?.quotes?.length) {
+        send(res, 404, { error: "Seal the card before emailing it." });
+        return;
+      }
+      const scheduled = await scheduleFromBody(req, { quotes: session.card.quotes, sessionId: session.id });
+      send(res, scheduled.status, scheduled.body);
       return;
     }
     if (req.method === "POST" && tail === "/turn") {
@@ -538,5 +596,10 @@ if (isMain) {
     const where = host === "0.0.0.0" ? `http://0.0.0.0:${port}` : `http://127.0.0.1:${port}`;
     const keyState = hasKey() ? "key loaded from the environment (not printed)" : "no ASSEMBLYAI_API_KEY, speech and questions unavailable";
     process.stdout.write(`Memory Card ${where}  ${keyState}\n`);
+    const timer = setInterval(() => {
+      deliverDueLetters(dataDir()).catch(() => {});
+    }, 30_000);
+    timer.unref();
+    deliverDueLetters(dataDir()).catch(() => {});
   });
 }

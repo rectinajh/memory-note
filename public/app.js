@@ -13,6 +13,10 @@ const ui = {
   quotes: $("quotes"),
   unclear: $("unclear"),
   tools: $("tools"),
+  compare: $("compare"),
+  source: $("source"),
+  sourceText: $("source-text"),
+  payCopy: $("pay-copy"),
   textForm: $("text-form"),
   textInput: $("text-input"),
   logEmpty: $("log-empty"),
@@ -25,10 +29,28 @@ const ui = {
   download: $("download"),
   downloadProof: $("download-proof"),
   sample: $("sample"),
+  own: $("own"),
   makeVideo: $("make-video"),
   share: $("share"),
   videoStatus: $("video-status"),
   storyVideo: $("story-video"),
+  cardFile: $("card-file"),
+  later: $("later"),
+  laterEmail: $("later-email"),
+  laterWhen: $("later-when"),
+  laterStatus: $("later-status"),
+  steps: $("steps"),
+  now: $("now"),
+  voice: $("voice"),
+  keepsake: $("keepsake"),
+  keepsakePhoto: $("keepsake-photo"),
+  keepsakeDate: $("keepsake-date"),
+  pay: $("pay"),
+  payLink: $("pay-link"),
+  payConfirm: $("pay-confirm"),
+  receipt: $("receipt"),
+  exportForm: $("export-form"),
+  passphrase: $("passphrase"),
 };
 
 const state = {
@@ -48,6 +70,13 @@ const state = {
   unlocked: false,
   videoFile: null,
   quotes: [],
+  quoteRecords: [],
+  cardQuotes: [],
+  transcript: "",
+  photoUrl: "",
+  paper: "letter",
+  paymentUrl: "",
+  markdown: "",
 };
 
 const GREETING = "I'm listening. This photo is yours. Who is in it?";
@@ -57,6 +86,31 @@ function setStatus(text) {
   ui.status.textContent = text;
 }
 
+function setPhase(phase) {
+  document.body.dataset.phase = phase;
+  ui.frame.classList.toggle("listening", phase === "listening");
+}
+
+function explain(raw) {
+  const text = String(raw || "");
+  if (/NotAllowedError|Permission denied|permission/i.test(text)) {
+    return "The microphone is blocked. Allow it in the browser bar, then press Start telling again.";
+  }
+  if (/NotFoundError/i.test(text)) {
+    return "No microphone was found. Type the story instead. It uses the same card.";
+  }
+  if (/ASSEMBLYAI_API_KEY|temporary streaming token|No speech key/i.test(text)) {
+    return "Speech is off until a key is in .env. You can still type, and the card uses the same rules.";
+  }
+  if (/did not finish|llm_failed|gateway/i.test(text)) {
+    return "That question did not come back. Send the line again. Quotes already saved stay saved.";
+  }
+  if (/Unlock did not finish|payment/i.test(text)) {
+    return "Unlock did not finish. Nothing was charged. Try again.";
+  }
+  return text;
+}
+
 function setBanner(text) {
   if (!text) {
     ui.banner.hidden = true;
@@ -64,12 +118,31 @@ function setBanner(text) {
     return;
   }
   ui.banner.hidden = false;
-  ui.banner.textContent = text;
+  ui.banner.textContent = explain(text);
+}
+
+function humanTool(tool) {
+  if (tool.name === "note_quote" && tool.ok) return "Kept in your words.";
+  if (tool.name === "note_quote") return "That line is not a continuous quote from what you said.";
+  if (tool.name === "flag_unclear" && tool.ok) return "Left out until you repeat it clearly.";
+  if (tool.name === "confirm_card" && tool.ok) return "The card is sealed.";
+  if (tool.name === "confirm_card") return "Say a short yes after at least one quote.";
+  return tool.ok ? "Noted." : "Not written on the card.";
+}
+
+function renderSteps(quoteCount, hasCard) {
+  const items = [...ui.steps.children];
+  const active = hasCard ? 3 : Math.min(quoteCount, 3);
+  items.forEach((item, index) => {
+    item.classList.toggle("done", hasCard ? index <= 3 : index < active);
+    item.classList.toggle("now", index === active);
+  });
 }
 
 function addLog(who, text) {
   const row = document.createElement("div");
-  row.className = "bubble";
+  row.className = who === "You" ? "bubble you" : "bubble assistant";
+  if (who !== "You") ui.now.textContent = text;
   const label = document.createElement("span");
   label.className = "who";
   label.textContent = who;
@@ -97,12 +170,56 @@ function looksLikeSpeech(text) {
   return /[a-z]/i.test(t) && t.length >= 2;
 }
 
+function showSource(text) {
+  const lines = state.quoteRecords.length
+    ? state.quoteRecords.map((quote) => quote.text)
+    : [text];
+  ui.source.hidden = false;
+  ui.sourceText.replaceChildren();
+  for (const line of lines) {
+    const row = document.createElement("p");
+    if (line === text) {
+      const mark = document.createElement("mark");
+      mark.textContent = line;
+      row.append(mark);
+    } else {
+      row.textContent = line;
+    }
+    ui.sourceText.append(row);
+  }
+}
+
+function renderCompare(tools) {
+  const rejected = (tools || []).find((tool) => tool.name === "note_quote" && !tool.ok && tool.rejected && tool.heard);
+  ui.compare.replaceChildren();
+  if (!rejected) {
+    ui.compare.hidden = true;
+    return;
+  }
+  ui.compare.hidden = false;
+  for (const [className, label, text] of [
+    ["heard", "You said", rejected.heard],
+    ["refused", "Not saved", rejected.rejected],
+  ]) {
+    const row = document.createElement("p");
+    row.className = className;
+    const title = document.createElement("span");
+    title.textContent = label;
+    row.append(title, document.createTextNode(text));
+    ui.compare.append(row);
+  }
+}
+
 function renderSession(data) {
+  state.transcript = data.transcript || state.transcript;
+  state.quoteRecords = data.quotes || [];
   ui.quotes.replaceChildren();
-  for (const quote of data.quotes || []) {
-    const chip = document.createElement("span");
+  for (const quote of state.quoteRecords) {
+    const chip = document.createElement("button");
+    chip.type = "button";
     chip.className = "chip";
     chip.textContent = quote.text;
+    chip.addEventListener("click", () => showSource(quote.text, quote.start, quote.end));
     ui.quotes.append(chip);
   }
   if (!data.quotes?.length) {
@@ -124,34 +241,49 @@ function renderSession(data) {
     empty.textContent = "None";
     ui.unclear.append(empty);
   }
-  const lines = (data.tools || []).map((tool) => {
-    const mark = tool.ok ? "Saved" : "Rejected";
-    return `${mark} ${tool.name}: ${tool.detail}`;
-  });
-  ui.tools.textContent = lines.join(" | ");
+  const lines = (data.tools || []).map(humanTool);
+  ui.tools.textContent = lines.join(" ");
   ui.tools.classList.toggle("warn", (data.tools || []).some((tool) => !tool.ok));
+  renderCompare(data.tools);
   if (typeof data.unlocked === "boolean") state.unlocked = data.unlocked;
   state.quotes = (data.quotes || []).map((quote) => quote.text);
+  renderSteps(state.quotes.length, Boolean(data.card?.markdown));
   if (data.card?.markdown) {
+    state.markdown = data.card.markdown;
+    state.cardQuotes = data.card.quotes || state.quotes;
     ui.cardPanel.hidden = false;
+    ui.cardFile.hidden = false;
+    showLater();
+    ui.cardPanel.classList.add("arrive");
     ui.card.textContent = data.card.markdown;
     ui.download.href = `/api/session/${state.sessionId}/card.md`;
     ui.downloadProof.href = `/api/session/${state.sessionId}/proof.json`;
-    renderPreview(data.card.quotes || state.quotes);
+    renderPreview(data.card.quotes || state.quotes, data.card.confirmedAt);
     ui.locked.hidden = state.unlocked;
     ui.paid.hidden = !state.unlocked;
+    if (state.unlocked) ui.pay.hidden = true;
   }
 }
 
-function renderPreview(quotes) {
+function renderPreview(quotes, confirmedAt) {
+  ui.keepsake.className = `keepsake ${state.paper}`;
+  ui.keepsakePhoto.src = state.photoUrl || "";
+  ui.keepsakePhoto.alt = ui.photoName.textContent || "Your photo";
+  const when = String(confirmedAt || "");
+  ui.keepsakeDate.textContent = /^\d{4}-\d{2}-\d{2}T/.test(when)
+    ? when.slice(0, 16).replace("T", " ")
+    : when;
   ui.cardPreview.replaceChildren();
-  const title = document.createElement("p");
-  title.className = "status";
-  title.textContent = ui.photoName.textContent || "Your photo";
-  ui.cardPreview.append(title);
   for (const quote of quotes) {
+    const text = typeof quote === "string" ? quote : quote.text;
+    const record = state.quoteRecords.find((item) => item.text === text) || {};
     const block = document.createElement("blockquote");
-    block.textContent = quote;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "quote-line";
+    button.textContent = text;
+    button.addEventListener("click", () => showSource(text, record.start, record.end));
+    block.append(button);
     ui.cardPreview.append(block);
   }
 }
@@ -171,13 +303,21 @@ async function postTurn(text, words) {
   return data;
 }
 
+const VOICE_NAMES = ["Samantha", "Google US English", "Daniel", "Alex"];
+
 function pickVoice() {
   const voices = window.speechSynthesis?.getVoices?.() || [];
   return (
+    voices.find((voice) => VOICE_NAMES.some((name) => voice.name.includes(name)) && /^en/i.test(voice.lang)) ||
     voices.find((voice) => /^en(-|_)?US/i.test(voice.lang)) ||
     voices.find((voice) => /^en/i.test(voice.lang)) ||
     null
   );
+}
+
+function showVoice() {
+  const voice = pickVoice();
+  ui.voice.textContent = voice ? `Voice · ${voice.name}` : "Voice · on-screen text if this browser has no English voice";
 }
 
 function speak(text) {
@@ -206,7 +346,9 @@ function barge() {
   state.speakGen += 1;
   state.speaking = false;
   window.speechSynthesis?.cancel();
+  setPhase("interrupted");
   setStatus("You cut in. I'm listening.");
+  setPhase("listening");
 }
 
 async function handleFinal(text, words) {
@@ -215,21 +357,28 @@ async function handleFinal(text, words) {
   ui.live.textContent = "";
   addLog("You", heard);
   const genAtSend = state.speakGen;
+  setPhase("thinking");
   setStatus("Thinking of the next short question…");
   try {
     const data = await postTurn(heard, words);
     renderSession(data);
     if (data.say) addLog("Assistant", data.say);
     if (state.speakGen === genAtSend) {
+      setPhase("speaking");
       setStatus("The assistant is speaking. You can cut in.");
       await speak(data.say);
-      if (state.speakGen === genAtSend) setStatus(state.ready ? "Listening." : "This turn is over.");
+      if (state.speakGen === genAtSend) {
+        setPhase(state.ready ? "listening" : "idle");
+        setStatus(state.ready ? "Listening." : "This turn is over.");
+      }
     } else {
+      setPhase("listening");
       setStatus("That line was interrupted. Keep going.");
     }
   } catch (err) {
     setBanner(err.message);
-    setStatus("This turn did not finish.");
+    setPhase("idle");
+    setStatus("Send that line again.");
   }
 }
 
@@ -333,9 +482,16 @@ async function startVoice() {
     if (msg.type === "Begin") {
       state.ready = true;
       ui.stop.disabled = false;
-      setStatus("You can start talking.");
+      setPhase("listening");
+      setStatus("Listening.");
       addLog("Assistant", GREETING);
-      speak(GREETING);
+      setPhase("speaking");
+      speak(GREETING).then(() => {
+        if (state.ready && !state.speaking) {
+          setPhase("listening");
+          setStatus("Listening.");
+        }
+      });
       return;
     }
     if (msg.type === "Turn") {
@@ -391,13 +547,17 @@ function applySession(data) {
   } catch {
     /* private mode */
   }
-  ui.frame.replaceChildren();
+  ui.frame.classList.add("has-photo");
+  ui.frame.querySelectorAll("img").forEach((node) => node.remove());
   const img = document.createElement("img");
   img.alt = "Uploaded old photo";
   img.src = data.photoUrl;
   ui.frame.append(img);
+  state.photoUrl = data.photoUrl;
   ui.photoName.textContent = data.photoFilename;
   ui.start.disabled = false;
+  ui.own.hidden = true;
+  state.playingExample = false;
   renderSession(data);
 }
 
@@ -434,11 +594,169 @@ ui.file.addEventListener("change", async () => {
   await startSessionFromResponse(res);
 });
 
-ui.sample.addEventListener("click", async () => {
-  setStatus("Loading the sample photo…");
-  const res = await fetch("/api/session/sample", { method: "POST" });
-  await startSessionFromResponse(res);
+const EXAMPLE = [
+  { who: "Assistant", text: "Who is in this photo?" },
+  { who: "You", text: "The courtyard was behind the house.", quote: true },
+  { who: "Assistant", text: "Where was this?" },
+  { who: "You", text: "I still know the door.", quote: true },
+  { who: "Assistant", text: "About when was this?" },
+  { who: "You", text: "It was the last summer we lived there.", quote: true },
+  { who: "Assistant", text: "Should I make the card? Say yes." },
+  { who: "You", text: "yes" },
+  { who: "Assistant", text: "The card is ready. It contains only the quotes you confirmed.", seal: true },
+];
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function showExamplePhoto() {
+  ui.frame.classList.add("has-photo");
+  ui.frame.querySelectorAll("img").forEach((node) => node.remove());
+  const img = document.createElement("img");
+  img.alt = "Example courtyard";
+  img.src = "/sample-photo.png";
+  ui.frame.append(img);
+  state.photoUrl = "/sample-photo.png";
+  ui.photoName.textContent = "Example · courtyard";
+}
+
+function resetTeller() {
+  state.sessionId = null;
+  state.playingExample = false;
+  state.quotes = [];
+  state.cardQuotes = [];
+  state.quoteRecords = [];
+  state.transcript = "";
+  ui.own.hidden = true;
+  ui.frame.classList.remove("has-photo");
+  ui.frame.querySelectorAll("img").forEach((node) => node.remove());
+  ui.photoName.textContent = "";
+  ui.start.disabled = true;
+  ui.cardPanel.hidden = true;
+  ui.later.hidden = true;
+  ui.laterStatus.textContent = "";
+  ui.now.textContent = "Who is in this photo?";
+  ui.quotes.replaceChildren();
+  ui.log.replaceChildren(ui.logEmpty);
+  ui.logEmpty.hidden = false;
+  renderSteps(0, false);
+  setBanner("");
+  setStatus("Choose a photo, or watch the example again.");
+}
+
+async function playExample() {
+  if (state.playingExample) return;
+  state.playingExample = true;
+  state.sessionId = null;
+  ui.start.disabled = true;
+  ui.own.hidden = true;
+  ui.cardPanel.hidden = true;
+  ui.log.replaceChildren();
+  ui.logEmpty.hidden = true;
+  const conversation = ui.log.closest("details");
+  if (conversation) conversation.open = true;
+  ui.quotes.replaceChildren();
+  showExamplePhoto();
+  setBanner("A finished example. Watch what gets said, then use your own photo.");
+  setStatus("Playing the example…");
+  const quotes = [];
+  const said = [];
+  for (const line of EXAMPLE) {
+    if (!state.playingExample) return;
+    said.push(line.text);
+    addLog(line.who, line.text);
+    ui.now.textContent = line.text;
+    if (line.quote) {
+      quotes.push(line.text);
+      state.transcript = quotes.join("\n");
+      state.quoteRecords = quotes.map((text) => ({ text }));
+      state.quotes = quotes.slice();
+      ui.quotes.replaceChildren();
+      for (const quote of state.quoteRecords) {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "chip";
+        chip.textContent = quote.text;
+        chip.addEventListener("click", () => showSource(quote.text, quote.start, quote.end));
+        ui.quotes.append(chip);
+      }
+      renderSteps(quotes.length, false);
+    }
+    if (line.seal) {
+      state.transcript = quotes.join("\n");
+      state.cardQuotes = quotes.slice();
+      renderSteps(quotes.length, true);
+      ui.cardPanel.hidden = false;
+      ui.cardFile.hidden = true;
+      ui.source.hidden = true;
+      ui.cardPanel.classList.add("arrive");
+      ui.locked.hidden = true;
+      ui.paid.hidden = true;
+      ui.pay.hidden = true;
+      ui.receipt.hidden = true;
+      renderPreview(quotes, "");
+      ui.keepsakeDate.textContent = "An example, not your card";
+      showLater();
+      ui.own.hidden = false;
+    }
+    await wait(700);
+  }
+  state.playingExample = false;
+  setStatus("That’s the whole example. Tell your own when you know the first sentence.");
+}
+
+function localStamp(date) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function showLater() {
+  const soon = new Date(Date.now() + 2 * 60 * 1000);
+  const year = new Date();
+  year.setFullYear(year.getFullYear() + 1);
+  year.setHours(9, 0, 0, 0);
+  ui.laterWhen.min = localStamp(soon);
+  if (!ui.laterWhen.value) ui.laterWhen.value = localStamp(year);
+  ui.later.hidden = false;
+}
+
+ui.later.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const email = ui.laterEmail.value.trim();
+  const when = ui.laterWhen.value;
+  const deliverAt = new Date(when);
+  if (!email || Number.isNaN(deliverAt.getTime()) || deliverAt.getTime() <= Date.now() + 60_000) {
+    ui.laterStatus.textContent = "Choose your email and a time at least a minute from now.";
+    return;
+  }
+  const lines = state.cardQuotes.length ? state.cardQuotes : state.quotes;
+  if (!lines.length) {
+    ui.laterStatus.textContent = "Seal the card before emailing it.";
+    return;
+  }
+  ui.laterStatus.textContent = "Sealing…";
+  const body = { email, deliverAt: deliverAt.toISOString() };
+  const url = state.sessionId ? `/api/session/${state.sessionId}/letter` : "/api/letter";
+  if (!state.sessionId) body.example = true;
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    ui.laterStatus.textContent = data.message || data.error || "The letter was not sealed.";
+  } catch {
+    ui.laterStatus.textContent = "The letter was not sealed.";
+  }
 });
+
+ui.sample.addEventListener("click", () => {
+  playExample().catch((err) => setBanner(err.message));
+});
+
+ui.own.addEventListener("click", resetTeller);
 
 async function restoreSession() {
   let id;
@@ -466,7 +784,8 @@ async function restoreSession() {
 ui.start.addEventListener("click", () => {
   startVoice().catch((err) => {
     ui.start.disabled = false;
-    setBanner(err.message || "The microphone or voice session did not start");
+    setBanner(err.name || err.message || "The microphone or voice session did not start");
+    setPhase("idle");
     cleanupAudio();
   });
 });
@@ -507,24 +826,47 @@ function wrapLines(ctx, text, maxWidth) {
   return lines.slice(0, 8);
 }
 
+function paperColors(paper) {
+  if (paper === "back") return { bg: "#f7f1e8", ink: "#241c16", bar: "rgba(247,241,232,0.92)" };
+  if (paper === "postcard") return { bg: "#f4efe6", ink: "#241c16", bar: "rgba(255,250,243,0.94)" };
+  return { bg: "#241c16", ink: "#f4efe6", bar: "rgba(36,28,22,0.55)" };
+}
+
 function drawStoryFrame(ctx, image, quotes, progress) {
   const width = ctx.canvas.width;
   const height = ctx.canvas.height;
-  ctx.fillStyle = "#241c16";
+  const colors = paperColors(state.paper);
+  ctx.fillStyle = colors.bg;
   ctx.fillRect(0, 0, width, height);
+  if (progress < 0.12) {
+    ctx.fillStyle = colors.ink;
+    ctx.font = "64px Georgia, serif";
+    ctx.fillText("Memory Card", 64, height * 0.46);
+    ctx.font = "28px Georgia, serif";
+    ctx.fillText("Your words only", 64, height * 0.52);
+    return;
+  }
+  if (progress > 0.88) {
+    ctx.fillStyle = colors.ink;
+    ctx.font = "42px Georgia, serif";
+    ctx.fillText("Verbatim", 64, height * 0.48);
+    return;
+  }
+  const span = 0.76;
+  const local = (progress - 0.12) / span;
   const slots = Math.max(quotes.length, 1);
-  const index = Math.min(slots - 1, Math.floor(progress * slots));
+  const index = Math.min(slots - 1, Math.floor(local * slots));
   const quote = quotes[index] || "";
   if (image) {
-    const zoom = 1 + progress * 0.08;
+    const zoom = 1 + local * 0.08;
     const scale = Math.max(width / image.width, (height * 0.62) / image.height) * zoom;
     const dw = image.width * scale;
     const dh = image.height * scale;
     ctx.drawImage(image, (width - dw) / 2, (height * 0.42 - dh) / 2, dw, dh);
   }
-  ctx.fillStyle = "rgba(36, 28, 22, 0.55)";
+  ctx.fillStyle = colors.bar;
   ctx.fillRect(0, height * 0.58, width, height * 0.42);
-  ctx.fillStyle = "#f4efe6";
+  ctx.fillStyle = colors.ink;
   ctx.font = "28px Georgia, serif";
   ctx.fillText("Memory Card", 64, height * 0.66);
   ctx.font = "42px Georgia, serif";
@@ -563,36 +905,59 @@ function makeStoryVideo(quotes) {
   return done;
 }
 
-ui.unlock.addEventListener("click", async () => {
+ui.unlock.addEventListener("click", () => {
   if (!state.sessionId) return;
-  ui.unlock.disabled = true;
+  const lines = state.cardQuotes.map((quote) => `“${quote}”`).join(" ");
+  ui.payCopy.textContent = lines
+    ? `You are buying this card only: ${lines} Markdown, proof, and video. Not a membership. This demo does not charge a card.`
+    : "You are buying this card’s file and video. Not a membership. This demo does not charge a card.";
+  ui.pay.hidden = false;
+  if (state.paymentUrl) {
+    ui.payLink.hidden = false;
+    ui.payLink.href = state.paymentUrl;
+    ui.payConfirm.textContent = "I've paid · unlock";
+  }
+});
+
+ui.payConfirm.addEventListener("click", async () => {
+  if (!state.sessionId) return;
+  ui.payConfirm.disabled = true;
   const res = await fetch(`/api/session/${state.sessionId}/unlock`, { method: "POST" });
   const data = await res.json().catch(() => ({}));
-  ui.unlock.disabled = false;
+  ui.payConfirm.disabled = false;
   if (!res.ok) {
     setBanner(data.error || "Unlock did not finish");
     return;
   }
   renderSession(data);
+  ui.pay.hidden = true;
+  const receipt = `MC-${Date.now().toString(36).toUpperCase()}`;
+  const lines = state.cardQuotes.map((quote) => `“${quote}”`).join(" ");
+  ui.payCopy.textContent = `You are buying this card only: ${lines} Markdown, proof, and video. Not a membership. This demo does not charge a card.`;
+  ui.receipt.hidden = false;
+  ui.receipt.textContent = `${receipt} · $1 · this card only · ${lines} · Markdown, proof, and video. Not a membership. Demo, no card charged.`;
   ui.videoStatus.textContent = "Unlocked. Download the card, or make the TikTok video.";
 });
 
 ui.makeVideo.addEventListener("click", async () => {
-  if (!state.quotes.length) {
-    ui.videoStatus.textContent = "Say yes to make the card before the video.";
+  if (!state.cardQuotes.length) {
+    ui.videoStatus.textContent = "Say yes to seal the card. The video can only caption those lines.";
     return;
   }
   ui.makeVideo.disabled = true;
-  ui.videoStatus.textContent = "Making a vertical video from your photo and your words…";
+  ui.videoStatus.textContent = "Making a vertical video. Captions are the sealed quotes only.";
   try {
-    const blob = await makeStoryVideo(state.quotes);
+    const blob = await makeStoryVideo(state.cardQuotes);
     const type = blob.type || "video/webm";
     const ext = type.includes("mp4") ? "mp4" : "webm";
     state.videoFile = new File([blob], `memory-card.${ext}`, { type });
     ui.storyVideo.hidden = false;
     ui.storyVideo.src = URL.createObjectURL(blob);
     ui.share.hidden = false;
-    ui.videoStatus.textContent = "Video ready. Share sends it to TikTok when your phone can. Otherwise it downloads and opens TikTok's upload page.";
+    const phone = navigator.canShare?.({ files: [state.videoFile] });
+    ui.videoStatus.textContent = phone
+      ? "Video ready. Share opens the phone sheet. Choose TikTok."
+      : "Video ready. On a phone, share can open TikTok. Here it downloads and opens TikTok's upload page.";
   } catch (err) {
     ui.videoStatus.textContent = err.message || "The video could not be made.";
   }
@@ -626,12 +991,102 @@ ui.share.addEventListener("click", async () => {
   ui.videoStatus.textContent = "Video downloaded and the caption copied. TikTok's upload page is open.";
 });
 
-window.speechSynthesis?.addEventListener?.("voiceschanged", () => pickVoice());
+document.querySelectorAll("[data-paper]").forEach((button) => {
+  button.addEventListener("click", () => {
+    state.paper = button.dataset.paper;
+    document.querySelectorAll("[data-paper]").forEach((item) => {
+      item.setAttribute("aria-pressed", item === button ? "true" : "false");
+    });
+    if (state.quotes.length) renderPreview(state.quotes, ui.keepsakeDate.textContent);
+  });
+});
+
+function bytesToBase64(bytes) {
+  let binary = "";
+  const view = new Uint8Array(bytes);
+  for (let i = 0; i < view.length; i += 1) binary += String.fromCharCode(view[i]);
+  return btoa(binary);
+}
+
+ui.exportForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!state.sessionId || !state.unlocked) return;
+  ui.videoStatus.textContent = "Packing the photo, the card, and the proof…";
+  try {
+    const [photo, markdown, proofRes] = await Promise.all([
+      fetch(state.photoUrl).then((res) => res.arrayBuffer()),
+      fetch(`/api/session/${state.sessionId}/card.md`).then((res) => res.text()),
+      fetch(`/api/session/${state.sessionId}/proof.json`).then((res) => res.json()),
+    ]);
+    const payload = {
+      version: 1,
+      paper: state.paper,
+      markdown,
+      proof: proofRes,
+      photoBase64: bytesToBase64(photo),
+    };
+    const passphrase = ui.passphrase.value;
+    let fileBody;
+    if (!passphrase) {
+      fileBody = JSON.stringify({ version: 1, encrypted: false, payload }, null, 2);
+    } else {
+      const salt = crypto.getRandomValues(new Uint8Array(16));
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const keyMaterial = await crypto.subtle.importKey(
+        "raw",
+        new TextEncoder().encode(passphrase),
+        "PBKDF2",
+        false,
+        ["deriveKey"],
+      );
+      const key = await crypto.subtle.deriveKey(
+        { name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" },
+        keyMaterial,
+        { name: "AES-GCM", length: 256 },
+        false,
+        ["encrypt"],
+      );
+      const cipher = await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv },
+        key,
+        new TextEncoder().encode(JSON.stringify(payload)),
+      );
+      fileBody = JSON.stringify({
+        version: 1,
+        encrypted: true,
+        kdf: "PBKDF2-SHA256-100000",
+        salt: bytesToBase64(salt),
+        iv: bytesToBase64(iv),
+        data: bytesToBase64(cipher),
+      });
+    }
+    const blob = new Blob([fileBody], { type: "application/json" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "memory-card.bundle.json";
+    link.click();
+    ui.videoStatus.textContent = passphrase
+      ? "Keepsake downloaded. It opens only with that passphrase."
+      : "Keepsake downloaded. Add a passphrase next time to encrypt it.";
+  } catch (err) {
+    ui.videoStatus.textContent = explain(err.message || "The keepsake could not be packed.");
+  }
+});
+
+window.speechSynthesis?.addEventListener?.("voiceschanged", showVoice);
+showVoice();
 
 fetch("/api/health")
   .then((res) => res.json())
   .then((data) => {
-    if (data.assemblyai !== "configured") setBanner(data.hint || "No speech key is configured.");
+    state.paymentUrl = data.paymentUrl || "";
+    if (data.assemblyai !== "configured") {
+      setBanner("Speech is off until a key is in .env. You can still type, and the card uses the same rules.");
+    }
+    if (location.hash === "#sample") {
+      ui.sample.click();
+      return;
+    }
     return restoreSession();
   })
   .catch(() => setBanner("This page could not reach the local server."));

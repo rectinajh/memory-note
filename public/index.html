@@ -9,73 +9,42 @@
 </head>
 <body>
   <main class="wrap">
-    <header>
+    <section class="home">
       <div>
-        <h1>Memory Card</h1>
-        <p class="lede">Tell the story of one old photo. The assistant only asks. The card keeps only your words.</p>
-        <p class="offer">Free to try. <strong>$1</strong> unlocks the download and the TikTok video.</p>
-      </div>
-      <div class="seal">Verbatim</div>
-    </header>
-    <p id="banner" class="banner" hidden></p>
-    <div class="layout">
-      <section class="panel">
-        <div class="photo-frame" id="frame">No photo yet</div>
-        <div class="row">
-          <label class="file">
-            <input id="file" type="file" accept="image/jpeg,image/png,image/webp,image/gif" />
-            <span>Choose a photo</span>
-          </label>
-          <button id="sample" class="ghost small" type="button">Try sample photo</button>
+        <p class="brand">Memory Card</p>
+        <h1>The photo is open. The sentence isn’t.</h1>
+        <p class="lede">You know the face, the door, the summer. You still can’t start. And you won’t let an app write the people in the picture for you.</p>
+        <p class="lede want">Tell it once. The card keeps only the words you said. <strong>$1</strong> is how you take that card with you: the file, the proof, and a video of this photo.</p>
+        <div class="hero-actions">
+          <a class="primary" href="/tell.html">Use your photo</a>
+          <a class="textish" href="/tell.html#sample">Watch the example</a>
         </div>
-        <p id="photo-name" class="status"></p>
-        <div class="row">
-          <button id="start" class="primary" disabled>Start telling</button>
-          <button id="stop" class="ghost" disabled>End</button>
-        </div>
-        <p id="status" class="status">Choose a photo first.</p>
-      </section>
-      <section class="panel">
-        <div id="log" class="log" aria-live="polite">
-          <p id="log-empty" class="status">The first question is who is in the photo.</p>
-        </div>
-        <p id="live" class="live"></p>
-        <h2>Quotes saved</h2>
-        <div id="quotes" class="chips"></div>
-        <h2>Unclear, left out</h2>
-        <div id="unclear" class="chips"></div>
-        <p id="tools" class="tools"></p>
-        <details>
-          <summary>Use text instead (same server tools, no microphone)</summary>
-          <form id="text-form" class="row">
-            <input id="text-input" name="text" maxlength="500" placeholder="Type the sentence you want to say" />
-            <button class="small" type="submit">Send</button>
-          </form>
-        </details>
-      </section>
-    </div>
-    <section class="panel" id="card-panel" hidden>
-      <h2>Memory Card</h2>
-      <div id="card-preview" class="preview"></div>
-      <div id="locked" class="row">
-        <button id="unlock" class="primary" type="button">Unlock all features · $1</button>
-        <p class="status">The telling stays free. This unlocks the file and the video on this computer. No card is charged.</p>
+        <p class="foot">Free to tell. No account. No feed. This demo does not charge a card.</p>
       </div>
-      <div id="paid" class="row" hidden>
-        <a id="download" class="primary" href="#">Download Markdown</a>
-        <a id="download-proof" class="ghost" href="#">Download proof.json</a>
-        <button id="make-video" class="ghost" type="button">Make TikTok video</button>
-        <button id="share" class="ghost" type="button" hidden>Share to TikTok</button>
-      </div>
-      <p id="video-status" class="status"></p>
-      <video id="story-video" class="story-video" controls hidden></video>
-      <details>
-        <summary>Markdown</summary>
-        <pre id="card" class="card"></pre>
-      </details>
+      <a class="home-card" href="/tell.html#sample" aria-label="Sample memory card">
+        <img src="/sample-photo.png" alt="A sunlit courtyard with a wooden door" />
+        <p class="status">One photo</p>
+        <blockquote>The courtyard was behind the house. I still know the door.</blockquote>
+        <div class="home-card-foot">
+          <span class="seal">Verbatim</span>
+          <span class="price">$1 to keep</span>
+        </div>
+      </a>
     </section>
-    <footer>The photo and the story stay on this computer's local server. There is no account and no feed. Speech uses the browser's English voice. Start talking to cut in.</footer>
+    <section class="points">
+      <article>
+        <h2>It only asks</h2>
+        <p>Who, where, when. Then it waits. It never speaks as someone in the photo.</p>
+      </article>
+      <article>
+        <h2>Your line, or nothing</h2>
+        <p>A sentence is saved only if you actually said it. A prettier version is shown beside yours, and refused.</p>
+      </article>
+      <article>
+        <h2>You leave with the card</h2>
+        <p>The telling is free. One dollar buys this card’s file, a proof you can check, and a vertical video. Not a membership.</p>
+      </article>
+    </section>
   </main>
-  <script src="/app.js" type="module"></script>
 </body>
 </html>

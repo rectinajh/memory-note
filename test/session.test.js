@@ -123,6 +123,15 @@ test("confirmIfAgreed writes the card when the model skipped the tool", () => {
   assert.equal(confirmIfAgreed(session), null);
 });
 
+test("a rejected paraphrase keeps what was heard beside what was refused", () => {
+  const session = sessionWith("It's my cat.");
+  const invented = applyTool(session, "note_quote", { quote: "This is my beloved cat" });
+  assert.equal(invented.ok, false);
+  assert.equal(invented.rejected, "This is my beloved cat");
+  assert.equal(invented.heard, "It's my cat.");
+  assert.equal(session.quotes.length, 0);
+});
+
 test("does not save a bare acknowledgement as a quote", () => {
   const session = sessionWith("okay");
   const result = applyTool(session, "note_quote", { quote: "okay" });

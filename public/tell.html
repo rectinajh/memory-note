@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="referrer" content="no-referrer" />
+  <title>Tell · Memory Card</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <main class="wrap">
+    <header class="top">
+      <div>
+        <p class="brand"><a class="textish" href="/">Memory Card</a></p>
+        <h1>Tell it once.</h1>
+        <p class="lede">Upload one photo. Answer in your own words. Say yes, and the card is sealed.</p>
+      </div>
+      <div class="seal">Verbatim</div>
+    </header>
+    <p id="banner" class="banner" hidden></p>
+    <div class="layout">
+      <section class="panel">
+        <div class="photo-frame" id="frame">
+          <div class="frame-copy">
+            <strong>One photo.</strong>
+            Your words only.
+          </div>
+        </div>
+        <div class="row">
+          <label class="file">
+            <input id="file" type="file" accept="image/jpeg,image/png,image/webp,image/gif" />
+            <span class="textish">Choose a photo</span>
+          </label>
+          <button id="sample" class="ghost" type="button">Watch the example</button>
+        </div>
+        <p id="photo-name" class="status"></p>
+        <div class="row">
+          <button id="start" class="primary" disabled>Start telling</button>
+          <button id="own" class="primary" type="button" hidden>Tell your own</button>
+          <button id="stop" class="ghost" disabled>End</button>
+        </div>
+        <p id="status" class="status">Choose a photo, or try the sample.</p>
+        <p id="voice" class="status voice"></p>
+      </section>
+      <section class="panel">
+        <ol class="steps" id="steps">
+          <li class="now">Who</li>
+          <li>Where</li>
+          <li>When</li>
+          <li>Card</li>
+        </ol>
+        <p id="now" class="now">Who is in this photo?</p>
+        <p id="live" class="live"></p>
+        <h2>Quotes saved</h2>
+        <div id="quotes" class="chips"></div>
+        <h2>Left out</h2>
+        <div id="unclear" class="chips"></div>
+        <p id="tools" class="tools"></p>
+        <div id="compare" class="compare" hidden></div>
+        <details>
+          <summary>Conversation</summary>
+          <div id="log" class="log" aria-live="polite">
+            <p id="log-empty" class="status">The first question is who is in the photo.</p>
+          </div>
+        </details>
+        <details open>
+          <summary>Use text instead</summary>
+          <form id="text-form" class="row">
+            <input id="text-input" name="text" maxlength="500" placeholder="Type the sentence you want to say" />
+            <button class="small" type="submit">Send</button>
+          </form>
+        </details>
+      </section>
+    </div>
+    <section class="panel card-panel" id="card-panel" hidden>
+      <div class="card-head">
+        <h2>Your card</h2>
+        <div class="papers" role="group" aria-label="Paper">
+          <button class="textish" type="button" data-paper="letter" aria-pressed="true">Letter</button>
+          <button class="textish" type="button" data-paper="back" aria-pressed="false">Photo back</button>
+          <button class="textish" type="button" data-paper="postcard" aria-pressed="false">Postcard</button>
+        </div>
+      </div>
+      <article id="keepsake" class="keepsake letter">
+        <img id="keepsake-photo" alt="" />
+        <p id="keepsake-date" class="status"></p>
+        <div id="card-preview" class="preview"></div>
+        <span class="seal">Verbatim</span>
+      </article>
+      <div id="source" class="source" hidden>
+        <p class="status">Kept from what you said</p>
+        <p id="source-text"></p>
+      </div>
+      <form id="later" class="later" hidden>
+        <h2>For a future you</h2>
+        <p class="quiet">Choose when you want these words back. One email arrives then, and nothing is sent again.</p>
+        <label>
+          Email
+          <input id="later-email" type="email" autocomplete="email" required placeholder="you@example.com" />
+        </label>
+        <label>
+          When it should arrive
+          <input id="later-when" type="datetime-local" required />
+        </label>
+        <button class="primary" type="submit">Email me then</button>
+        <p id="later-status" class="status"></p>
+      </form>
+      <div id="locked">
+        <button id="unlock" class="primary" type="button">Unlock all features · $1</button>
+        <p class="status">The telling stays free. $1 buys this card’s file and video, not a membership.</p>
+      </div>
+      <div id="pay" class="pay" hidden>
+        <h2>$1</h2>
+        <p id="pay-copy" class="quiet">Markdown, proof, and a video of the lines on this card. Not a membership. This demo does not charge a card.</p>
+        <div class="row">
+          <a id="pay-link" class="ghost" href="#" target="_blank" rel="noopener" hidden>Pay $1</a>
+          <button id="pay-confirm" class="primary" type="button">Confirm unlock</button>
+        </div>
+      </div>
+      <p id="receipt" class="receipt" hidden></p>
+      <div id="paid" hidden>
+        <div class="row">
+          <a id="download" class="primary" href="#">Download Markdown</a>
+          <a id="download-proof" class="ghost" href="#">Download proof</a>
+          <button id="make-video" class="ghost" type="button">Make TikTok video</button>
+          <button id="share" class="ghost" type="button" hidden>Share to TikTok</button>
+        </div>
+        <form id="export-form" class="row pass">
+          <input id="passphrase" type="password" placeholder="Optional passphrase" autocomplete="new-password" />
+          <button id="export" class="ghost" type="submit">Download keepsake</button>
+        </form>
+      </div>
+      <p id="video-status" class="status"></p>
+      <video id="story-video" class="story-video" controls hidden></video>
+      <details id="card-file">
+        <summary>Markdown</summary>
+        <pre id="card" class="card"></pre>
+      </details>
+    </section>
+    <footer>The photo stays on this server. Nothing is posted until you share it. Start talking to cut in.</footer>
+  </main>
+  <script src="/app.js" type="module"></script>
+</body>
+</html>

@@ -19,6 +19,15 @@ You do not need another app that wants you back tomorrow, a feed, or a page that
 
 You wanted **one careful telling** and an artifact you can **close the laptop on**.
 
+### The point
+
+You are not saving a photo. You are saving the sentence that still knows it.
+
+Say it once, while you still can. The card will not improve a single word. Then pick a day the memory may have gone quiet — a birthday, an anniversary, a year from an ordinary Tuesday — and those same lines come back as **one email**. You do not have to remember to look. Nothing asks you to open the app again.
+
+That is the meaning: your words, returned once, on a day you chose.  
+The value is what you can hold: the card on screen, the file, the proof, the clip, and a letter that does not become a habit.
+
 ### How we solve it
 
 **Memory Card** is a **voice interviewer**, not a writer. One photo. Short questions. **Barge-in** when you talk over it.
@@ -28,8 +37,9 @@ You wanted **one careful telling** and an artifact you can **close the laptop on
 - Fuzzy words stay **off** the card until you say them clearly again.
 - The assistant never speaks **as** someone in the photo.
 - The card is sealed only after a short **yes**—then you can **prove** every line with hashes (`proof.json`).
+- **For a future you:** you set the address and the moment. One email leaves then. The body is the sealed quotes, nothing added. It does not write again.
 
-Free to tell; see the card on screen. **$1** unlocks Markdown, proof, and a TikTok-ready clip (photo + your quotes only).
+Free to tell; see the card on screen; seal that one email. **$1** unlocks Markdown, proof, and a TikTok-ready clip (photo + your quotes only). The letter waits on this computer, so Memory Card has to be running when the moment arrives.
 
 ```
      ┌─────────────┐
@@ -44,9 +54,9 @@ Free to tell; see the card on screen. **$1** unlocks Markdown, proof, and a TikT
 
 | | |
 |--|--|
-| **Free** | Tell the story. See the card on screen. |
+| **Free** | Tell the story. See the card. Email it once to a future you. |
 | **$1** | Markdown, `proof.json`, TikTok-ready vertical video. |
-| **Never** | Feed. Memorial hall. “Hi, I’m your grandfather” chatbot. |
+| **Never** | Feed. Daily reminder. Memorial hall. “Hi, I’m your grandfather” chatbot. |
 
 *Don’t trust the model. Verify the span.*
 
@@ -86,11 +96,12 @@ node --test test/*.js
 
 ## Use it
 
-1. **Choose a photo** or **Try sample photo**.
+1. **Choose a photo** or **Watch the example**.
 2. **Start telling** (mic) or **Use text instead**.
 3. Answer in your words; watch **Quotes saved** fill with *your* lines.
 4. Short **yes** → card preview (free).
-5. **Unlock · $1** → download **memory-card.md** + **proof.json** → **Make TikTok video** → share.
+5. **For a future you** → your email, the day and time, **Email me then**. One letter, your quotes only.
+6. **Unlock · $1** → download **memory-card.md** + **proof.json** → **Make TikTok video** → share.
 
 Mic needs a key in `.env`; upload works without it.
 
@@ -105,6 +116,7 @@ Mic needs a key in `.env`; upload works without it.
 | LLM Gateway | Tools only; server runs `applyTool` |
 | `captureStatement` / `confirmIfAgreed` | Safety net when the model skips a tool |
 | `data/sessions/` | Survives restart; page restores last id |
+| `data/letters/` | One future email per card; sent once, then stopped |
 
 Playback is browser `speechSynthesis` (not Voice Agent yet). The **card** is what we harden—not every spoken line.
 
@@ -124,4 +136,4 @@ Full rules: **`docs/tech.md`**. Product: **`docs/prd.md`**.
 
 ## Privacy
 
-Key stays on the server. Photo is not sent to AssemblyAI. TikTok is **your** upload. `.env` and `data/` are gitignored; default bind is `127.0.0.1`.
+Key stays on the server. Photo is not sent to AssemblyAI. TikTok is **your** upload. The future-you address is kept only so that one letter can leave. `.env` and `data/` are gitignored; default bind is `127.0.0.1`.

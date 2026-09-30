@@ -28,6 +28,16 @@ docker run -p 8787:8787 -e HOST=0.0.0.0 -e ASSEMBLYAI_API_KEY=... \
 
 The browser still connects to `wss://streaming.assemblyai.com` from the user's machine. CSP already allows that host.
 
+## Vercel
+
+`server.js` is the entry. Vercel runs that Node server. `public/` is bundled with it. On Vercel the disk is not durable, so photos, sessions, and future-you letters are written under `/tmp/memory-note`. A card can disappear when a new instance starts, and the email only leaves if that same instance is still alive at the chosen time.
+
+```bash
+vercel --prod
+```
+
+Put `ASSEMBLYAI_API_KEY` in the Vercel project environment. Do not commit `.env`.
+
 ## Local vs public
 
 - Default `HOST=127.0.0.1` for local-only.
