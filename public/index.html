@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="referrer" content="no-referrer" />
+  <title>记忆卡</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <main class="wrap">
+    <header>
+      <div>
+        <h1>记忆卡</h1>
+        <p class="lede">上传一张旧照片，用说话把你自己的故事留下来。助手只追问，不编造，也不扮演照片里的人。卡片里只有你确认过的原话。</p>
+      </div>
+      <div class="seal">只记原话</div>
+    </header>
+    <p id="banner" class="banner" hidden></p>
+    <div class="layout">
+      <section class="panel">
+        <div class="photo-frame" id="frame">还没有照片</div>
+        <div class="row">
+          <label class="file">
+            <input id="file" type="file" accept="image/jpeg,image/png,image/webp,image/gif" />
+            <span>选择照片</span>
+          </label>
+        </div>
+        <p id="photo-name" class="status"></p>
+        <div class="row">
+          <button id="start" class="primary" disabled>开始讲述</button>
+          <button id="stop" class="ghost" disabled>结束</button>
+        </div>
+        <p id="status" class="status">先选一张照片。</p>
+      </section>
+      <section class="panel">
+        <div id="log" class="log" aria-live="polite"></div>
+        <p id="live" class="live"></p>
+        <h2>记下的原话</h2>
+        <div id="quotes" class="chips"></div>
+        <h2>听不清、先不写</h2>
+        <div id="unclear" class="chips"></div>
+        <p id="tools" class="tools"></p>
+        <details>
+          <summary>改用文字（同一套服务端工具，不经过麦克风）</summary>
+          <form id="text-form" class="row">
+            <input id="text-input" name="text" maxlength="500" placeholder="输入你想说的那句话" />
+            <button class="small" type="submit">发送</button>
+          </form>
+        </details>
+      </section>
+    </div>
+    <section class="panel" id="card-panel" hidden>
+      <h2>记忆卡</h2>
+      <pre id="card" class="card"></pre>
+      <div class="row">
+        <a id="download" class="primary" href="#">下载 Markdown</a>
+      </div>
+    </section>
+    <footer>照片和故事只留在这台电脑的本地服务里，没有账号，也没有动态。朗读用的是浏览器自带的中文语音；打断说话即可插话。</footer>
+  </main>
+  <script src="/app.js" type="module"></script>
+</body>
+</html>
