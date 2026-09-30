@@ -8,14 +8,44 @@ import {
   TOOLS,
   addUtterance,
   applyTool,
+  captureStatement,
+  confirmIfAgreed,
   createSession,
+  localReply,
   publicView,
   turnUserContent,
 } from "./lib/session.js";
 import { chatComplete, hasKey, mintStreamingToken, parseCompletion, redact } from "./lib/aai.js";
+import { proofJson } from "./lib/proof.js";
+import { loadSession, persistSession } from "./lib/persist.js";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(root, "public");
+
+function loadEnvFile() {
+  let text;
+  try {
+    text = fs.readFileSync(path.join(root, ".env"), "utf8");
+  } catch {
+    return;
+  }
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) || process.env[key]) continue;
+    let value = trimmed.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    if (value) process.env[key] = value;
+  }
+}
 
 export function dataDir() {
   return process.env.MEMORY_NOTE_DATA || path.join(root, "data");
@@ -23,6 +53,18 @@ export function dataDir() {
 
 const sessions = new Map();
 const queues = new Map();
+
+function resolveSession(id) {
+  let session = sessions.get(id);
+  if (session) return session;
+  session = loadSession(dataDir(), id);
+  if (session) sessions.set(id, session);
+  return session;
+}
+
+function touchSession(session) {
+  persistSession(dataDir(), session);
+}
 
 function send(res, status, obj) {
   let body = JSON.stringify(obj);
@@ -94,11 +136,11 @@ function fallbackSay(toolLog) {
   const flagged = toolLog.filter((t) => t.name === "flag_unclear" && t.ok);
   const card = toolLog.find((t) => t.name === "confirm_card" && t.ok);
   const failed = toolLog.filter((t) => !t.ok);
-  if (card) return "卡片写好了，里面只有你确认过的原话。";
-  if (flagged.length) return `有个词我没听清：${flagged.map((t) => t.detail).join("、")}。请再说一遍。`;
-  if (failed.length && !saved.length) return "这句我还不能写下来。请用你自己的话再说短短一句。";
-  if (saved.length) return "这句话我按你的原话记下了。";
-  return "我在听。";
+  if (card) return "The card is ready. It contains only the quotes you confirmed.";
+  if (flagged.length) return `I didn't catch this: ${flagged.map((t) => t.detail).join(", ")}. Please say it again.`;
+  if (failed.length && !saved.length) return "I can't write that down yet. Please say one short line in your own words.";
+  if (saved.length) return "I saved that in your own words.";
+  return "I'm listening.";
 }
 
 async function runTurn(session, body) {
@@ -114,11 +156,19 @@ async function runTurn(session, body) {
   });
   const toolLog = [];
   let say = "";
-  for (let round = 0; round < 4; round++) {
-    const data = await chatComplete({
-      messages: [{ role: "system", content: SYSTEM_PROMPT }, ...session.messages],
-      tools: TOOLS,
-    });
+  let gatewayDown = false;
+  for (let round = 0; round < 4 && !gatewayDown; round++) {
+    let data;
+    try {
+      data = await chatComplete({
+        messages: [{ role: "system", content: SYSTEM_PROMPT }, ...session.messages],
+        tools: TOOLS,
+      });
+    } catch (err) {
+      if (err.message !== "llm_failed") throw err;
+      gatewayDown = true;
+      break;
+    }
     const { text, calls } = parseCompletion(data);
     if (!calls.length) {
       say = text;
@@ -150,7 +200,7 @@ async function runTurn(session, body) {
       }
       const out = applyTool(session, call.function.name, args);
       const detail = out.ok
-        ? out.result.saved || out.result.flagged || (out.result.card ? "已写入" : "ok")
+        ? out.result.saved || out.result.flagged || (out.result.card ? "saved" : "ok")
         : out.error;
       toolLog.push({ name: call.function.name, ok: out.ok, detail });
       session.messages.push({
@@ -161,10 +211,41 @@ async function runTurn(session, body) {
     }
     if (text) say = text;
   }
+  if (gatewayDown) {
+    const local = localReply(session);
+    toolLog.push(...local.tools);
+    say = local.say;
+    session.messages.push({ role: "assistant", content: say });
+  }
+  const quoted = toolLog.some((tool) => tool.name === "note_quote" && tool.ok);
+  const confirmed = toolLog.some((tool) => tool.name === "confirm_card" && tool.ok);
+  if (!quoted && !confirmed) {
+    const caught = captureStatement(session);
+    if (caught) {
+      toolLog.push({
+        name: "note_quote",
+        ok: caught.ok,
+        detail: caught.ok ? caught.result.saved : caught.error,
+      });
+    }
+  }
+  if (!toolLog.some((tool) => tool.name === "confirm_card" && tool.ok)) {
+    const agreed = confirmIfAgreed(session);
+    if (agreed) {
+      toolLog.push({
+        name: "confirm_card",
+        ok: agreed.ok,
+        detail: agreed.ok ? "saved" : agreed.error,
+      });
+      if (agreed.ok) say = "The card is ready. It contains only the quotes you confirmed.";
+      else say = "Tell me one line about the photo first. Then say yes.";
+    }
+  }
   if (session.messages.length > 24) {
     session.messages.splice(0, session.messages.length - 24);
   }
   if (session.card) writeCard(session);
+  touchSession(session);
   if (!say) say = fallbackSay(toolLog);
   return {
     say,
@@ -186,17 +267,19 @@ function writeCard(session) {
   const dir = path.join(dataDir(), "cards");
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, `${session.id}.md`), session.card.markdown);
+  const proof = proofJson(session);
+  if (proof) fs.writeFileSync(path.join(dir, `${session.id}.proof.json`), proof);
 }
 
 async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/health") {
     send(res, 200, {
       ok: true,
-      app: "记忆卡",
+      app: "Memory Card",
       assemblyai: hasKey() ? "configured" : "missing",
       hint: hasKey()
         ? null
-        : "当前进程没有 ASSEMBLYAI_API_KEY。语音识别和提问都不会开始。请在启动 node 的环境里设置该变量后重启，不要把密钥写进文件。",
+        : "This process has no ASSEMBLYAI_API_KEY. Speech recognition and questions will not start. Put the key in .env, then restart.",
     });
     return;
   }
@@ -208,15 +291,35 @@ async function handleApi(req, res, url) {
     } catch (err) {
       if (err.code === "NO_KEY") {
         send(res, 503, {
-          error: "服务器没有读到 ASSEMBLYAI_API_KEY，无法申请临时转写令牌。",
+          error: "The server has no ASSEMBLYAI_API_KEY, so it cannot request a temporary streaming token.",
         });
         return;
       }
       send(res, err.status && err.status < 500 ? 502 : 502, {
-        error: "申请临时转写令牌失败",
+        error: "Could not get a temporary streaming token",
         detail: redact(err.detail || err.message),
       });
     }
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/session/sample") {
+    const samplePath = path.join(publicDir, "sample-photo.png");
+    if (!fs.existsSync(samplePath)) {
+      send(res, 500, { error: "Sample photo is missing on the server" });
+      return;
+    }
+    const buf = fs.readFileSync(samplePath);
+    const id = randomUUID();
+    const filename = "sample-yard.png";
+    const dir = path.join(dataDir(), "photos");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, id), buf);
+    fs.writeFileSync(path.join(dir, `${id}.json`), JSON.stringify({ filename, mime: "image/png" }));
+    const session = createSession({ id, photoFilename: filename });
+    sessions.set(id, session);
+    touchSession(session);
+    send(res, 201, { ...publicView(session), photoUrl: `/api/photos/${id}` });
     return;
   }
 
@@ -225,7 +328,7 @@ async function handleApi(req, res, url) {
     try {
       payload = JSON.parse((await readBody(req, 9_000_000)).toString("utf8") || "{}");
     } catch (err) {
-      send(res, err.status || 400, { error: "照片数据无法读取" });
+      send(res, err.status || 400, { error: "Could not read the photo data" });
       return;
     }
     const filename = safeFilename(payload.filename);
@@ -233,16 +336,16 @@ async function handleApi(req, res, url) {
     try {
       buf = Buffer.from(String(payload.dataBase64 || ""), "base64");
     } catch {
-      send(res, 400, { error: "照片不是有效的 base64" });
+      send(res, 400, { error: "Photo is not valid base64" });
       return;
     }
     if (!buf.length || buf.length > 6_000_000) {
-      send(res, 400, { error: "照片为空或超过 6MB" });
+      send(res, 400, { error: "Photo is empty or larger than 6MB" });
       return;
     }
     const mime = sniffImage(buf);
     if (!mime) {
-      send(res, 415, { error: "只接受 jpg、png、webp 或 gif" });
+      send(res, 415, { error: "Only jpg, png, webp, or gif" });
       return;
     }
     const id = randomUUID();
@@ -255,6 +358,7 @@ async function handleApi(req, res, url) {
     );
     const session = createSession({ id, photoFilename: filename });
     sessions.set(id, session);
+    touchSession(session);
     send(res, 201, { ...publicView(session), photoUrl: `/api/photos/${id}` });
     return;
   }
@@ -265,7 +369,7 @@ async function handleApi(req, res, url) {
     const file = path.join(dataDir(), "photos", id);
     const metaPath = path.join(dataDir(), "photos", `${id}.json`);
     if (!fs.existsSync(file) || !fs.existsSync(metaPath)) {
-      send(res, 404, { error: "找不到照片" });
+      send(res, 404, { error: "Photo not found" });
       return;
     }
     const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
@@ -278,27 +382,61 @@ async function handleApi(req, res, url) {
     return;
   }
 
-  const sessionMatch = url.pathname.match(/^\/api\/session\/([0-9a-f-]{36})(\/turn|\/card\.md)?$/);
+  const sessionMatch = url.pathname.match(
+    /^\/api\/session\/([0-9a-f-]{36})(\/turn|\/card\.md|\/proof\.json|\/unlock)?$/,
+  );
   if (sessionMatch) {
     const id = sessionMatch[1];
-    const session = sessions.get(id);
+    const session = resolveSession(id);
     const tail = sessionMatch[2] || "";
     if (!session) {
-      send(res, 404, { error: "找不到这次讲述。请重新上传照片。" });
+      send(res, 404, { error: "This telling was not found. Please upload the photo again." });
       return;
     }
     if (req.method === "GET" && tail === "") {
       send(res, 200, { ...publicView(session), photoUrl: `/api/photos/${id}` });
       return;
     }
+    if (req.method === "POST" && tail === "/unlock") {
+      session.unlocked = true;
+      touchSession(session);
+      send(res, 200, publicView(session));
+      return;
+    }
+    if (req.method === "GET" && tail === "/proof.json") {
+      if (!session.card) {
+        send(res, 404, { error: "No confirmed memory card yet" });
+        return;
+      }
+      if (!session.unlocked) {
+        send(res, 402, { error: "Unlock all features for $1 to download the verification file." });
+        return;
+      }
+      const proof = proofJson(session);
+      if (!proof) {
+        send(res, 500, { error: "Could not build proof" });
+        return;
+      }
+      res.writeHead(200, {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Disposition": 'attachment; filename="memory-card.proof.json"',
+        "Cache-Control": "no-store",
+      });
+      res.end(proof);
+      return;
+    }
     if (req.method === "GET" && tail === "/card.md") {
       if (!session.card) {
-        send(res, 404, { error: "还没有确认的记忆卡" });
+        send(res, 404, { error: "No confirmed memory card yet" });
+        return;
+      }
+      if (!session.unlocked) {
+        send(res, 402, { error: "Unlock all features for $1 to download the card." });
         return;
       }
       res.writeHead(200, {
         "Content-Type": "text/markdown; charset=utf-8",
-        "Content-Disposition": "attachment; filename*=UTF-8''%E8%AE%B0%E5%BF%86%E5%8D%A1.md",
+        "Content-Disposition": 'attachment; filename="memory-card.md"',
         "Cache-Control": "no-store",
       });
       res.end(session.card.markdown);
@@ -309,7 +447,7 @@ async function handleApi(req, res, url) {
       try {
         body = JSON.parse((await readBody(req, 200_000)).toString("utf8") || "{}");
       } catch {
-        send(res, 400, { error: "请求不是 JSON" });
+        send(res, 400, { error: "Request is not JSON" });
         return;
       }
       try {
@@ -322,12 +460,12 @@ async function handleApi(req, res, url) {
         }
         if (err.code === "NO_KEY") {
           send(res, 503, {
-            error: "服务器没有读到 ASSEMBLYAI_API_KEY，没法继续问下去，也不会写卡片。",
+            error: "The server has no ASSEMBLYAI_API_KEY, so it cannot continue the questions or write a card.",
           });
           return;
         }
         send(res, 502, {
-          error: "这一轮没能完成",
+          error: "This turn did not finish",
           detail: redact(err.detail || err.message),
         });
       }
@@ -335,7 +473,7 @@ async function handleApi(req, res, url) {
     }
   }
 
-  send(res, 404, { error: "没有这个接口" });
+  send(res, 404, { error: "No such endpoint" });
 }
 
 const STATIC = {
@@ -348,16 +486,16 @@ const STATIC = {
 function serveStatic(req, res, url) {
   const rel = url.pathname === "/" ? "index.html" : url.pathname.replace(/^\/+/, "");
   if (rel.includes("..") || path.isAbsolute(rel)) {
-    send(res, 400, { error: "路径无效" });
+    send(res, 400, { error: "Invalid path" });
     return;
   }
   const file = path.join(publicDir, rel);
   if (!file.startsWith(publicDir + path.sep) && file !== publicDir) {
-    send(res, 400, { error: "路径无效" });
+    send(res, 400, { error: "Invalid path" });
     return;
   }
   if (!fs.existsSync(file) || !fs.statSync(file).isFile()) {
-    send(res, 404, { error: "找不到页面" });
+    send(res, 404, { error: "Page not found" });
     return;
   }
   const ext = path.extname(file);
@@ -380,22 +518,25 @@ export function createServer() {
         return;
       }
       if (req.method !== "GET" && req.method !== "HEAD") {
-        send(res, 405, { error: "方法不允许" });
+        send(res, 405, { error: "Method not allowed" });
         return;
       }
       serveStatic(req, res, url);
     } catch (err) {
-      if (!res.headersSent) send(res, 500, { error: "服务器出错", detail: redact(err.message) });
+      if (!res.headersSent) send(res, 500, { error: "Server error", detail: redact(err.message) });
     }
   });
 }
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
+  loadEnvFile();
   const port = Number(process.env.PORT || 8787);
+  const host = process.env.HOST || "127.0.0.1";
   const server = createServer();
-  server.listen(port, "127.0.0.1", () => {
-    const keyState = hasKey() ? "已从环境变量读到密钥（不会打印）" : "没有 ASSEMBLYAI_API_KEY，语音与提问不可用";
-    process.stdout.write(`记忆卡 http://127.0.0.1:${port}  ${keyState}\n`);
+  server.listen(port, host, () => {
+    const where = host === "0.0.0.0" ? `http://0.0.0.0:${port}` : `http://127.0.0.1:${port}`;
+    const keyState = hasKey() ? "key loaded from the environment (not printed)" : "no ASSEMBLYAI_API_KEY, speech and questions unavailable";
+    process.stdout.write(`Memory Card ${where}  ${keyState}\n`);
   });
 }

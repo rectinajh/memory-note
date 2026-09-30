@@ -1,184 +1,193 @@
-# 记忆卡 技术文档
+# Memory Card technical notes
 
-本文描述仓库里已经跑起来的原型，不描述尚未实现的付费成品。
+This document describes the prototype that already runs in the repo. It does not describe paid finished pieces that are not built.
 
-## 架构
+## Architecture
 
-单进程 Node.js，无 npm 依赖，入口 `server.js`。用内置 `http`、`fs`、`crypto`。静态页在 `public/`，规则在 `lib/session.js`，AssemblyAI 调用在 `lib/aai.js`。
+One Node.js process, no npm dependencies. Entry point `server.js`. It uses built-in `http`, `fs`, and `crypto`. Static files are in `public/`. Rules are in `lib/session.js`. AssemblyAI calls are in `lib/aai.js`.
 
 ```
-浏览器
-  |  POST /api/session          照片（base64）
-  |  GET  /api/streaming-token  只拿临时令牌
-  |  POST /api/session/:id/turn 一轮转写
+browser
+  |  POST /api/session          photo (base64)
+  |  GET  /api/streaming-token  temporary token only
+  |  POST /api/session/:id/turn one transcript turn
   |  GET  /api/session/:id/card.md
+  |  GET  /api/session/:id/proof.json
+  |  POST /api/session/sample
   |
-  +-- WebSocket 直连 AssemblyAI Streaming（令牌，不是永久密钥）
-  +-- speechSynthesis（zh-CN）朗读服务端返回的 say
+  +-- WebSocket direct to AssemblyAI Streaming (token, not the permanent key)
+  +-- speechSynthesis (en-US) reads the server's say
 
 server.js
-  |  会话在内存 Map 中
-  |  同一会话的回合串行排队
-  +-- lib/aai.js     令牌与 LLM Gateway
-  +-- lib/session.js 工具硬校验与卡片 Markdown
-  +-- data/photos、data/cards
+  |  sessions live in an in-memory Map
+  |  turns for one session are queued in order
+  +-- lib/aai.js     token and LLM Gateway
+  +-- lib/session.js hard tool checks and card Markdown
+  +-- data/photos, data/cards
 ```
 
-进程只监听 `127.0.0.1`，默认端口 `8787`（`PORT` 可改）。`node server.js` 即可。Node.js 20+。
+The process listens only on `127.0.0.1`, default port `8787` (`PORT` overrides it). `node server.js` is enough. Node.js 20+.
 
-一次会话：`POST /api/session` 生成 UUID，照片写入磁盘，会话对象放进内存。重启后内存会话消失，已写的卡片文件还在，但下载接口依赖内存里的 `session.card`，所以重启后不能再靠旧 id 下载。
+One session: `POST /api/session` or `POST /api/session/sample` creates a UUID, writes the photo to disk, and puts the session object in memory. After each turn the session is written to `data/sessions/<id>.json`. On the next request, `resolveSession` loads from disk if the id is not in memory. The browser can restore the last session id from `localStorage`.
 
-## AssemblyAI 集成
+## AssemblyAI integration
 
-密钥只从进程环境变量 `ASSEMBLYAI_API_KEY` 读取。不写磁盘，不打日志，不放进前端。响应体如果意外带上密钥（长度至少 8），会替换成 `[redacted]`，`Bearer` 也会被抹掉。
+The key is read from the process environment variable `ASSEMBLYAI_API_KEY`. On startup, `node server.js` also loads `.env` from the project root and fills any variable that is not already set. The key is not logged and not sent to the page. If a response body accidentally contains the key (length at least 8), it is replaced with `[redacted]`. `Bearer` values are stripped too.
 
-### 流式转写
+### Streaming transcription
 
-`GET /api/streaming-token` 由服务端请求：
+`GET /api/streaming-token` is requested by the server:
 
 `GET https://streaming.assemblyai.com/v3/token?expires_in_seconds=300&max_session_duration_seconds=900`
 
-先用密钥本身做 `Authorization`，若 401 再试 `Bearer`。返回的 `token` 不得等于永久密钥，否则当成上游错误。
+Authorization is tried with the key itself, then `Bearer` if that returns 401. The returned `token` must not equal the permanent key. If it does, that is treated as an upstream error.
 
-浏览器用临时令牌连接：
+The browser connects with the temporary token:
 
 `wss://streaming.assemblyai.com/v3/ws`
 
-查询参数：`sample_rate=16000`，`encoding=pcm_s16le`，`speech_model=universal-3-6-pro`，`language_codes=["zh"]`，`language_detection=true`。
+Query parameters: `sample_rate=16000`, `encoding=pcm_s16le`, `speech_model=universal-3-6-pro`, `language_codes=["en"]`, `language_detection=true`.
 
-麦克风经 AudioWorklet 重采样到 16 kHz、16-bit PCM，按 800 采样（50ms）一帧发送。`Begin` 之后页面说出开场白：「我在听。这张照片是你的。先告诉我，照片里有谁？」这句是前端固定文案，不经过模型。
+The microphone is resampled in an AudioWorklet to 16 kHz, 16-bit PCM, and sent in frames of 800 samples (50ms). After `Begin`, the page speaks a fixed greeting: "I'm listening. This photo is yours. Who is in it?" That line is frontend copy. It does not go through the model.
 
-`Turn` 消息：未结束的部分转写只用于插话检测。`end_of_turn` 且 `turn_is_formatted` 的文本才送进 `/turn`。若格式化结果迟迟不来，450ms 后使用未格式化的那条，避免卡住。同一 `turn_order` 只提交一次。
+`Turn` messages: an unfinished partial transcript is used only to detect an interruption. Text is sent to `/turn` when `end_of_turn` and `turn_is_formatted`. If the formatted result does not arrive, the unformatted turn is used after 450ms so the conversation does not stick. Each `turn_order` is submitted once.
 
-结束或离开页面时发送 `{ "type": "Terminate" }`。
+On end, or when the page is left, the browser sends `{ "type": "Terminate" }`.
 
-没有密钥时，令牌接口返回 503，语音不会开始。
+Without a key, the token endpoint returns 503 and speech does not start.
 
-### 回合与语言模型
+### Turns and the language model
 
-`POST /api/session/:id/turn` 的正文是 `{ "text", "words" }`。`words` 可带 `confidence`。空文本返回 400。
+The body of `POST /api/session/:id/turn` is `{ "text", "words" }`. `words` may include `confidence`. Empty text returns 400.
 
-服务端把这一轮追加进会话，再请求：
+The server appends the turn to the session, then requests:
 
 `POST https://llm-gateway.assemblyai.com/v1/chat/completions`
 
-请求使用 `tool_choice: "auto"`，`temperature: 0.2`，`max_tokens: 600`，以及 `post_processing_steps: [{ type: "json-repair" }]`。工具定义来自 `lib/session.js` 的 `TOOLS`。
+The request uses `tool_choice: "auto"`, `temperature: 0.2`, `max_tokens: 600`, and `post_processing_steps: [{ type: "json-repair" }]`. Tool definitions come from `TOOLS` in `lib/session.js`.
 
-模型按这个顺序尝试，成功后记住下标，下次从它开始：
+Models are tried in this order. After a success, the index is remembered and the next request starts there:
 
 1. `gemini-3.5-flash-lite`
 2. `gemini-2.5-flash-lite`
 3. `gpt-5-mini`
 4. `claude-haiku-4-5-20251001`
 
-只有 400、404、422 或无法解析的成功响应才会换模型。401、403 直接失败，不轮换。其他 4xx/5xx 也直接失败。
+Only 400, 404, 422, or a success body that cannot be parsed moves to the next model. 401 and 403 fail immediately, with no rotation. Other 4xx and 5xx fail immediately too.
 
-一轮里最多 4 次模型调用，以便连续执行工具。没有工具调用时，模型文本作为 `say`。若始终没有可朗读的文本，用本地兜底句（记下了、请重说、或「我在听」）。对话消息超过 24 条时丢掉最旧的。系统提示不占这 24 条，每次单独放在最前。
+One turn may call the model up to 4 times so tools can run in sequence. If there is no tool call, the model text becomes `say`. If there is still nothing to read aloud, a local fallback is used (saved, please repeat, or "I'm listening"). If every model is rejected because the account has no LLM Gateway access, `localReply` asks the next fixed question and still runs the same three tools. It does not invent a quote. When conversation messages exceed 24, the oldest are dropped. The system prompt is not part of those 24. It is placed at the front on every request.
 
-### 朗读和打断（不是 Voice Agent）
+### Playback and interruption (not Voice Agent)
 
-`say` 由浏览器 `speechSynthesis` 朗读，语言 `zh-CN`，优先选择 `zh-CN` / `zh-Hans` 语音包。没有中文语音包时，文字仍显示。
+`say` is read by the browser `speechSynthesis`, language `en-US`, preferring an `en-US` voice and otherwise any `en` voice. If no English voice is installed, the text still shows.
 
-打断发生在部分转写阶段：正在朗读，且新文本像人话（含汉字，或长度至少 3），并且不像刚才那句助手话的回声，就 `speechSynthesis.cancel()`。回声判断是去掉空白和标点后的互相包含。被打断的那一轮如果已经发出，返回后不再朗读。
+Interruption happens on a partial transcript: while speech is playing, and the new text looks like speech (contains a letter and is at least 2 characters) and does not look like an echo of the line just spoken, the page calls `speechSynthesis.cancel()`. Echo detection strips whitespace and punctuation, then checks whether either string contains the other. If the turn was already sent when it was interrupted, the reply is not read aloud when it comes back.
 
-这不是 AssemblyAI Voice Agent，也不是 `interrupt_response`。
+This is not AssemblyAI Voice Agent, and it is not `interrupt_response`.
 
-Voice Agent 浏览器会话（`GET https://agents.assemblyai.com/v1/token`，再连 `wss://agents.assemblyai.com/v1/ws`）没有接入。原因是官方 TTS 音色目前没有中文（英语、意大利语、西班牙语、德语、葡萄牙语、法语；中文仍是即将推出）。不要在文档或界面里写成「已支持中文语音代理」。
+The Voice Agent browser session (`GET https://agents.assemblyai.com/v1/token`, then `wss://agents.assemblyai.com/v1/ws`) is not connected. Playback is the browser voice. Do not describe the page as an AssemblyAI voice agent.
 
-文字入口调用同一个 `/turn`，不带词级置信度。没有密钥时同样 503。
+The text entry calls the same `/turn` and does not send word-level confidence. Without a key it also returns 503.
 
-## 工具契约
+## Tool contract
 
-模型可以调用工具，但结果以 `applyTool` 为准。失败原因会作为 tool 消息返回，模型应改口，不能把失败当成已保存。
+The model may call tools. The result is whatever `applyTool` returns. A failure reason comes back as a tool message. The model should change what it says. A failure is not a successful save.
 
 `note_quote`
 
-- 参数 `quote`（字符串）。
-- 必须能映射为用户全部转写拼接文本中的连续片段。先做精确子串；失败后再忽略空白和常见标点做对齐，但保存的仍是转写里的原文切片，不是模型改过的字符串。
-- 最长 120 个码点。对齐后的松散文本至少 2 个字才接受非精确匹配。
-- 纯应答（「可以」「好的」「确认」等，松散长度不超过 8）拒绝。
-- 若该切片碰到低置信度词，拒绝并自动记入听不清。阈值：多字词置信度低于 0.6；单字低于 0.4。没有置信度的词不按此规则判低。
-- 成功则追加到 `session.quotes`（相同文本不重复）。
+- Argument `quote` (string).
+- It must map to a continuous span of the concatenated user transcript. An exact substring is tried first. If that fails, alignment ignores whitespace and common punctuation, but the saved text is still the original slice from the transcript, not the model's edited string.
+- At most 120 code points. A non-exact match is accepted only when the loosened text is at least 2 characters.
+- A pure answer ("yes", "okay", "make the card", and the other short agreements) is rejected.
+- If the slice touches a low-confidence word, it is rejected and automatically marked unclear. Thresholds: confidence below 0.6 for a word longer than one character; below 0.4 for a single character. A word with no confidence is not treated as low by this rule.
+- On success, the quote is appended to `session.quotes` (the same text is not stored twice).
 
 `flag_unclear`
 
-- 参数 `phrase`。必须同样是转写中的连续片段，否则拒绝。
-- 成功只做标记，不写原话。提示词要求随后请用户重说。
+- Argument `phrase`. It must also be a continuous span of the transcript, or it is rejected.
+- Success only marks the phrase. It does not write a quote. The prompt then asks the user to repeat it.
 
 `confirm_card`
 
-- 模式里有 `agreed` 布尔值，服务端不信任它，也不接受故事正文。
-- 通过条件：当前最新一条用户转写是明确短同意。去掉空白和句读后长度不超过 24，且匹配一组短句（如「可以」「确认」「写成卡片」「就这样吧」）。「我确认那个人是我爷爷」这种长句不是同意。
-- 还要求至少一条已校验原话，以及照片文件名。
-- 成功后生成 Markdown 并立刻写入 `data/cards/<sessionId>.md`。返回给模型的 tool 结果会去掉卡片正文，只留原话列表和文件名，避免模型把整卡再编一遍。
+- The schema has an `agreed` boolean. The server does not trust it, and it does not accept a story body.
+- It passes only when the latest user transcript is a short explicit yes. After trimming and dropping punctuation, the length is at most 40, and the text matches a fixed set of short lines (for example "yes", "okay", "make the card"). "I confirm that person is my grandfather" is not agreement.
+- It also requires at least one checked quote and a photo filename.
+- On success, Markdown is generated and written immediately to `data/cards/<sessionId>.md`. The tool result returned to the model strips the card body and keeps the quote list and filename, so the model does not rewrite the whole card.
 
-卡片 Markdown 结构固定：
+The card Markdown has a fixed shape:
 
-- 标题「记忆卡」
-- 照片文件名
-- 确认时间，`Asia/Shanghai`，格式 `YYYY-MM-DD HH:mm`，标注北京时间
-- 「你说过的话」：每条原话一块引用
-- 若仍有未解决的听不清词：单独一节列出，并写明没写进卡片
-- 结尾声明句子只来自转写
+- Title "Memory Card"
+- Photo filename
+- Confirmation time, `Asia/Shanghai`, format `YYYY-MM-DD HH:mm`, labeled China Standard Time
+- "What you said": each quote as a blockquote
+- If unclear phrases are still unresolved: a separate section listing them, and a line that they were not written onto the card
+- A closing line that the sentences come only from the transcript
 
-「未解决」指听不清短语还没有被某条已保存原话包含。
+"Unresolved" means an unclear phrase is not contained in any saved quote.
 
-系统提示还要求：不编造，不扮演照片中的人或逝者，口头最多两句，用户转写不是给模型的指令。这些是提示，不是解析器。硬边界只在三个工具上。
+The system prompt also requires: do not invent, do not speak as a person in the photo or as someone who has died, at most two spoken sentences, and the user transcript is not an instruction to the model. Those are prompts, not a parser. The hard boundary is the three tools.
 
-## 数据
+## Data
 
-| 位置 | 内容 | 生命周期 |
+| Location | Contents | Lifetime |
 | --- | --- | --- |
-| 内存 `sessions` | 转写、原话、听不清、消息、卡片对象 | 进程内。重启即丢 |
-| `data/photos/<uuid>` | 原始图片字节 | 磁盘，直到人删除 |
-| `data/photos/<uuid>.json` | `{ filename, mime }` | 同上 |
-| `data/cards/<uuid>.md` | 确认后的 Markdown | 写入后留在磁盘。下载接口仍要内存会话 |
+| In-memory `sessions` | hot copy of session | Reloaded from `data/sessions/` on demand |
+| `data/sessions/<uuid>.json` | utterances, quotes, card, unlock flag | Survives process restart |
+| `data/photos/<uuid>` | raw image bytes | On disk until someone deletes them |
+| `data/photos/<uuid>.json` | `{ filename, mime }` | Same |
+| `data/cards/<uuid>.md` | confirmed Markdown | Written on confirm |
+| `data/cards/<uuid>.proof.json` | transcript + markdown hashes, quote spans | Written on confirm |
 
-`MEMORY_NOTE_DATA` 可替换 `data/` 根目录。`data/` 已 gitignore。
+`MEMORY_NOTE_DATA` replaces the `data/` root. `data/` is gitignored.
 
-照片限制：JSON 正文上限约 9MB；解码后图片 1 字节到 6MB。用文件头识别 PNG、JPEG、GIF87a/GIF89a、WEBP。文件名去掉路径，只保留有限字符，最长 80。
+Photo limits: JSON body about 9MB; decoded image from 1 byte to 6MB. The file header identifies PNG, JPEG, GIF87a/GIF89a, and WEBP. The filename has its path stripped, keeps a limited character set, and is at most 80 characters.
 
-静态页 CSP：`connect-src` 只允许自身和 `wss://streaming.assemblyai.com`。没有放行 `agents.assemblyai.com`。
+Static-page CSP: `connect-src` allows only this origin and `wss://streaming.assemblyai.com`. `agents.assemblyai.com` is not allowed.
 
-主要接口：
+Main endpoints:
 
-- `GET /api/health`：`assemblyai` 为 `configured` 或 `missing`。不返回密钥。
+- `GET /api/health`: `assemblyai` is `configured` or `missing`. The key is not returned.
 - `GET /api/streaming-token`
 - `POST /api/session`
+- `POST /api/session/sample`: demo photo without upload
 - `GET /api/photos/:id`
 - `GET /api/session/:id`
+- `POST /api/session/:id/unlock`: prototype $1 unlock (no payment processor)
 - `POST /api/session/:id/turn`
-- `GET /api/session/:id/card.md`：附件名「记忆卡.md」。没有卡片则 404。
+- `GET /api/session/:id/card.md`: attachment `memory-card.md`. 402 until unlocked.
+- `GET /api/session/:id/proof.json`: verifiable bundle. 402 until unlocked.
 
-## 隐私
+See `lib/proof.js` for `transcriptSha256`, quote spans, and `markdownSha256`.
 
-- 永久密钥不出服务端。临时令牌会到浏览器，只用于当次流式转写，约 300 秒内有效，会话最长约 15 分钟。
-- 转写文本和照片会离开本机：音频到 AssemblyAI Streaming，转写文本到 LLM Gateway。照片不发给这两个接口。
-- 没有账号、没有第三方登录、没有分析脚本。
-- 服务只绑本机回环地址，但没有鉴权。本机其他本地程序可以访问照片和会话。
-- 不要把密钥放进仓库、README、PRD 或日志。`.env` 已被忽略；原型也不读取 `.env` 文件，变量必须在启动进程的环境里。
+## Privacy
 
-## 已知缺口
+- The permanent key never leaves the server. The temporary token reaches the browser and is used only for that streaming session. It is valid for about 300 seconds. The session lasts about 15 minutes.
+- Transcript text and the photo leave this machine: audio goes to AssemblyAI Streaming, transcript text goes to the LLM Gateway. The photo is not sent to either endpoint.
+- There is no account, no third-party login, and no analytics script.
+- The server binds only to loopback, and it has no authentication. Other local programs on this machine can reach the photos and sessions.
+- Do not put the key in the repo, the README, the PRD, or the logs. `.env` is gitignored. The running process loads it once at startup. A variable already set in the shell is left as-is.
 
-- 密钥尚未进入当前运行环境时，语音令牌和 `/turn` 都是 503。这是环境问题，不是功能开关。不要把密钥写进代码或文档。
-- 没有中文 Voice Agent TTS。朗读质量取决于浏览器语音包，不能打断到「半个词」的官方代理语义，只是取消当前朗读。
-- 助手嘴上仍可能说出用户没说过的内容。卡片会拒绝，朗读不会。
-- 对话不落盘。进程一停，未确认的讲述没了；已写的 md 文件在，但页面会话 id 不再有效。
-- 照片文件没有随会话过期清理。
-- 模型列表是按当前可用性写死的顺序，不是账号里真实开通情况的探测。某个名字失效时会在 400/404/422 上跳过。
-- 单机、单用户、无队列持久化。同一会话的回合用内存 Promise 链串行。
-- 付费能力都没做：长访谈成短篇、多张照片、人工润色、短片。
+## Known gaps
 
-## 测试
+- When the key is not in `.env` or the process environment, the speech token and `/turn` both return 503. That is a missing key, not a feature flag. Do not write the key into code or docs.
+- Playback quality depends on the browser voice. Interruption cancels the current utterance. It is not official agent interruption down to half a word.
+- The assistant can still say something the user never said. The card rejects it. Playback does not.
+- Sessions are persisted under `data/sessions/` but messages are trimmed in memory during long tells. Proof and Markdown are also written under `data/cards/` when the card is confirmed.
+- Photo files are not expired with the session.
+- The model list is a fixed order based on current availability, not a probe of what the account actually has enabled. A dead name is skipped on 400, 404, or 422.
+- Single machine, single user, no durable queue. Turns for one session are serialized with an in-memory promise chain.
+- Paid abilities are not built: a long interview turned into a short piece, several photos, a human edit, a short film.
 
-不需要密钥，也不访问网络：
+## Tests
+
+No key, and no network:
 
 ```bash
 node --test test/*.js
 ```
 
-`test/session.test.js` 覆盖：原话必须是子串、标点差异映射回原文、低置信度拒绝并标记、没说过的词不能 flag、确认必须是短同意、卡片不含模型塞进来的故事、应答词不能当原话。
+`test/session.test.js` covers: a quote must be a substring, punctuation differences map back to the original slice, low confidence is rejected and marked, a word never said cannot be flagged, confirmation must be a short yes, the card does not contain a story the model tried to insert, and an acknowledgement cannot be a quote.
 
-`test/server.test.js` 在临时数据目录起服务，断言：无密钥时 health 为 missing、令牌与 turn 为 503、页面 HTML 不含密钥赋值、照片按文件头保存、伪造密钥不会出现在 health 响应里。
+`test/server.test.js` starts the server in a temporary data directory and asserts: without a key, health is missing, the token and turn are 503, the page HTML does not assign the key, a photo is saved by file header, and a fake key does not appear in the health response.
 
-测试通过只说明规则和本机 HTTP 行为，不说明 AssemblyAI 账号可用。
+Passing tests show the rules and local HTTP behavior. They do not show that an AssemblyAI account works.

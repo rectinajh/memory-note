@@ -15,9 +15,20 @@ const ui = {
   tools: $("tools"),
   textForm: $("text-form"),
   textInput: $("text-input"),
+  logEmpty: $("log-empty"),
   cardPanel: $("card-panel"),
+  cardPreview: $("card-preview"),
   card: $("card"),
+  locked: $("locked"),
+  paid: $("paid"),
+  unlock: $("unlock"),
   download: $("download"),
+  downloadProof: $("download-proof"),
+  sample: $("sample"),
+  makeVideo: $("make-video"),
+  share: $("share"),
+  videoStatus: $("video-status"),
+  storyVideo: $("story-video"),
 };
 
 const state = {
@@ -34,9 +45,13 @@ const state = {
   pendingTimer: null,
   turnChain: Promise.resolve(),
   pcmQueue: new Int16Array(0),
+  unlocked: false,
+  videoFile: null,
+  quotes: [],
 };
 
-const GREETING = "我在听。这张照片是你的。先告诉我，照片里有谁？";
+const GREETING = "I'm listening. This photo is yours. Who is in it?";
+const SESSION_KEY = "memory-card-session-id";
 
 function setStatus(text) {
   ui.status.textContent = text;
@@ -61,6 +76,7 @@ function addLog(who, text) {
   const body = document.createElement("span");
   body.textContent = text;
   row.append(label, body);
+  ui.logEmpty.hidden = true;
   ui.log.append(row);
   ui.log.scrollTop = ui.log.scrollHeight;
 }
@@ -78,8 +94,7 @@ function isEcho(heard, spoken) {
 
 function looksLikeSpeech(text) {
   const t = text.trim();
-  if (/[\u4e00-\u9fff]/.test(t)) return true;
-  return t.length >= 3;
+  return /[a-z]/i.test(t) && t.length >= 2;
 }
 
 function renderSession(data) {
@@ -93,7 +108,7 @@ function renderSession(data) {
   if (!data.quotes?.length) {
     const empty = document.createElement("span");
     empty.className = "chip";
-    empty.textContent = "还没有";
+    empty.textContent = "None yet";
     ui.quotes.append(empty);
   }
   ui.unclear.replaceChildren();
@@ -106,18 +121,38 @@ function renderSession(data) {
   if (!data.unclear?.length) {
     const empty = document.createElement("span");
     empty.className = "chip";
-    empty.textContent = "没有";
+    empty.textContent = "None";
     ui.unclear.append(empty);
   }
   const lines = (data.tools || []).map((tool) => {
-    const mark = tool.ok ? "记下" : "拒绝";
-    return `${mark} ${tool.name}：${tool.detail}`;
+    const mark = tool.ok ? "Saved" : "Rejected";
+    return `${mark} ${tool.name}: ${tool.detail}`;
   });
-  ui.tools.textContent = lines.join(" ｜ ");
+  ui.tools.textContent = lines.join(" | ");
+  ui.tools.classList.toggle("warn", (data.tools || []).some((tool) => !tool.ok));
+  if (typeof data.unlocked === "boolean") state.unlocked = data.unlocked;
+  state.quotes = (data.quotes || []).map((quote) => quote.text);
   if (data.card?.markdown) {
     ui.cardPanel.hidden = false;
     ui.card.textContent = data.card.markdown;
     ui.download.href = `/api/session/${state.sessionId}/card.md`;
+    ui.downloadProof.href = `/api/session/${state.sessionId}/proof.json`;
+    renderPreview(data.card.quotes || state.quotes);
+    ui.locked.hidden = state.unlocked;
+    ui.paid.hidden = !state.unlocked;
+  }
+}
+
+function renderPreview(quotes) {
+  ui.cardPreview.replaceChildren();
+  const title = document.createElement("p");
+  title.className = "status";
+  title.textContent = ui.photoName.textContent || "Your photo";
+  ui.cardPreview.append(title);
+  for (const quote of quotes) {
+    const block = document.createElement("blockquote");
+    block.textContent = quote;
+    ui.cardPreview.append(block);
   }
 }
 
@@ -129,7 +164,7 @@ async function postTurn(text, words) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const message = data.error || "这一轮失败了";
+    const message = data.error || "This turn failed";
     const detail = data.detail ? ` ${data.detail}` : "";
     throw new Error(message + detail);
   }
@@ -139,8 +174,8 @@ async function postTurn(text, words) {
 function pickVoice() {
   const voices = window.speechSynthesis?.getVoices?.() || [];
   return (
-    voices.find((voice) => /^zh(-|_)?(CN|Hans)/i.test(voice.lang)) ||
-    voices.find((voice) => /^zh/i.test(voice.lang)) ||
+    voices.find((voice) => /^en(-|_)?US/i.test(voice.lang)) ||
+    voices.find((voice) => /^en/i.test(voice.lang)) ||
     null
   );
 }
@@ -153,7 +188,7 @@ function speak(text) {
   state.speaking = true;
   return new Promise((resolve) => {
     const utterance = new SpeechSynthesisUtterance(clean);
-    utterance.lang = "zh-CN";
+    utterance.lang = "en-US";
     const voice = pickVoice();
     if (voice) utterance.voice = voice;
     const done = () => {
@@ -171,30 +206,30 @@ function barge() {
   state.speakGen += 1;
   state.speaking = false;
   window.speechSynthesis?.cancel();
-  setStatus("你插话了，我在听。");
+  setStatus("You cut in. I'm listening.");
 }
 
 async function handleFinal(text, words) {
   const heard = String(text || "").trim();
   if (!heard || isEcho(heard, state.lastAgent)) return;
   ui.live.textContent = "";
-  addLog("你", heard);
+  addLog("You", heard);
   const genAtSend = state.speakGen;
-  setStatus("在想下一句短问题…");
+  setStatus("Thinking of the next short question…");
   try {
     const data = await postTurn(heard, words);
     renderSession(data);
-    if (data.say) addLog("助手", data.say);
+    if (data.say) addLog("Assistant", data.say);
     if (state.speakGen === genAtSend) {
-      setStatus("助手在说。你可以直接打断。");
+      setStatus("The assistant is speaking. You can cut in.");
       await speak(data.say);
-      if (state.speakGen === genAtSend) setStatus(state.ready ? "在听。" : "这一轮结束了。");
+      if (state.speakGen === genAtSend) setStatus(state.ready ? "Listening." : "This turn is over.");
     } else {
-      setStatus("上一句被打断了。继续说就行。");
+      setStatus("That line was interrupted. Keep going.");
     }
   } catch (err) {
     setBanner(err.message);
-    setStatus("这一轮没有完成。");
+    setStatus("This turn did not finish.");
   }
 }
 
@@ -208,7 +243,7 @@ function enqueueTurn(text, words) {
 function onTranscript(msg) {
   const text = msg.transcript || "";
   if (!msg.end_of_turn) {
-    ui.live.textContent = text ? `正在听：${text}` : "";
+    ui.live.textContent = text ? `Hearing: ${text}` : "";
     if (state.speaking && looksLikeSpeech(text) && !isEcho(text, state.lastAgent)) barge();
     return;
   }
@@ -249,14 +284,14 @@ async function startVoice() {
   if (!state.sessionId) return;
   setBanner("");
   ui.start.disabled = true;
-  setStatus("正在申请临时令牌…");
+  setStatus("Requesting a temporary token…");
   const tokenRes = await fetch("/api/streaming-token");
   const tokenBody = await tokenRes.json().catch(() => ({}));
   if (!tokenRes.ok) {
     ui.start.disabled = false;
-    setBanner(tokenBody.error || "拿不到转写令牌");
+    setBanner(tokenBody.error || "Could not get a streaming token");
     if (tokenBody.detail) setBanner(`${tokenBody.error} ${tokenBody.detail}`);
-    setStatus("还没连上语音。");
+    setStatus("Voice is not connected yet.");
     return;
   }
   const stream = await navigator.mediaDevices.getUserMedia({
@@ -278,7 +313,7 @@ async function startVoice() {
     sample_rate: "16000",
     speech_model: "universal-3-6-pro",
     encoding: "pcm_s16le",
-    language_codes: JSON.stringify(["zh"]),
+    language_codes: JSON.stringify(["en"]),
     language_detection: "true",
     token: tokenBody.token,
   });
@@ -286,7 +321,7 @@ async function startVoice() {
   state.ws = ws;
   ws.addEventListener("open", () => {
     ui.stop.disabled = false;
-    setStatus("正在接通转写…");
+    setStatus("Connecting transcription…");
   });
   ws.addEventListener("message", (event) => {
     let msg;
@@ -298,8 +333,8 @@ async function startVoice() {
     if (msg.type === "Begin") {
       state.ready = true;
       ui.stop.disabled = false;
-      setStatus("可以开始说了。");
-      addLog("助手", GREETING);
+      setStatus("You can start talking.");
+      addLog("Assistant", GREETING);
       speak(GREETING);
       return;
     }
@@ -308,22 +343,22 @@ async function startVoice() {
       return;
     }
     if (msg.type === "Termination") {
-      setStatus("语音会话已结束。");
+      setStatus("The voice session has ended.");
       cleanupAudio();
       return;
     }
     if (msg.error || msg.type === "Error") {
-      setBanner(String(msg.error || msg.message || "转写会话出错").slice(0, 180));
+      setBanner(String(msg.error || msg.message || "The transcription session failed").slice(0, 180));
     }
   });
   ws.addEventListener("close", () => {
     state.ready = false;
-    if (!ui.cardPanel.hidden) setStatus("语音已断开。卡片还在。");
-    else setStatus("语音连接已断开。");
+    if (!ui.cardPanel.hidden) setStatus("Voice disconnected. The card is still here.");
+    else setStatus("The voice connection closed.");
     cleanupAudio();
   });
   ws.addEventListener("error", () => {
-    setBanner("连不上实时转写。请确认密钥有效，并且浏览器允许麦克风。");
+    setBanner("Could not connect to live transcription. Check that the key is valid and the browser allows the microphone.");
   });
 }
 
@@ -349,18 +384,46 @@ function endVoice() {
   state.speaking = false;
 }
 
+function applySession(data) {
+  state.sessionId = data.id;
+  try {
+    localStorage.setItem(SESSION_KEY, data.id);
+  } catch {
+    /* private mode */
+  }
+  ui.frame.replaceChildren();
+  const img = document.createElement("img");
+  img.alt = "Uploaded old photo";
+  img.src = data.photoUrl;
+  ui.frame.append(img);
+  ui.photoName.textContent = data.photoFilename;
+  ui.start.disabled = false;
+  renderSession(data);
+}
+
+async function startSessionFromResponse(res) {
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    setBanner(data.error || "The photo was not saved");
+    setStatus("Try a jpg, png, webp, or gif.");
+    return;
+  }
+  setBanner("");
+  applySession(data);
+  setStatus('Photo ready. Press "Start telling", then speak.');
+}
+
 ui.file.addEventListener("change", async () => {
   const file = ui.file.files?.[0];
   if (!file) return;
-  setBanner("");
-  setStatus("正在保存照片…");
+  setStatus("Saving the photo…");
   const dataBase64 = await new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
       const value = String(reader.result || "");
       resolve(value.slice(value.indexOf(",") + 1));
     };
-    reader.onerror = () => reject(new Error("读不到这张照片"));
+    reader.onerror = () => reject(new Error("Could not read this photo"));
     reader.readAsDataURL(file);
   });
   const res = await fetch("/api/session", {
@@ -368,28 +431,42 @@ ui.file.addEventListener("change", async () => {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ filename: file.name, dataBase64 }),
   });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    setBanner(data.error || "照片没有保存");
-    setStatus("请换一张 jpg、png、webp 或 gif。");
+  await startSessionFromResponse(res);
+});
+
+ui.sample.addEventListener("click", async () => {
+  setStatus("Loading the sample photo…");
+  const res = await fetch("/api/session/sample", { method: "POST" });
+  await startSessionFromResponse(res);
+});
+
+async function restoreSession() {
+  let id;
+  try {
+    id = localStorage.getItem(SESSION_KEY);
+  } catch {
     return;
   }
-  state.sessionId = data.id;
-  ui.frame.replaceChildren();
-  const img = document.createElement("img");
-  img.alt = "上传的旧照片";
-  img.src = data.photoUrl;
-  ui.frame.append(img);
-  ui.photoName.textContent = data.photoFilename;
-  ui.start.disabled = false;
-  setStatus("照片好了。按「开始讲述」，然后说话。");
-  renderSession(data);
-});
+  if (!id) return;
+  const res = await fetch(`/api/session/${id}`);
+  if (!res.ok) {
+    try {
+      localStorage.removeItem(SESSION_KEY);
+    } catch {
+      /* ignore */
+    }
+    return;
+  }
+  const data = await res.json();
+  applySession(data);
+  if (data.card) setStatus("Your card is still here after a refresh.");
+  else setStatus('Photo ready. Press "Start telling", then speak.');
+}
 
 ui.start.addEventListener("click", () => {
   startVoice().catch((err) => {
     ui.start.disabled = false;
-    setBanner(err.message || "麦克风或语音会话没有开始");
+    setBanner(err.message || "The microphone or voice session did not start");
     cleanupAudio();
   });
 });
@@ -398,7 +475,7 @@ ui.stop.addEventListener("click", endVoice);
 ui.textForm.addEventListener("submit", (event) => {
   event.preventDefault();
   if (!state.sessionId) {
-    setBanner("请先上传照片。");
+    setBanner("Upload a photo first.");
     return;
   }
   const text = ui.textInput.value.trim();
@@ -413,11 +490,148 @@ window.addEventListener("pagehide", () => {
   }
 });
 
+function wrapLines(ctx, text, maxWidth) {
+  const words = String(text).split(/\s+/);
+  const lines = [];
+  let line = "";
+  for (const word of words) {
+    const next = line ? `${line} ${word}` : word;
+    if (ctx.measureText(next).width > maxWidth && line) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = next;
+    }
+  }
+  if (line) lines.push(line);
+  return lines.slice(0, 8);
+}
+
+function drawStoryFrame(ctx, image, quotes, progress) {
+  const width = ctx.canvas.width;
+  const height = ctx.canvas.height;
+  ctx.fillStyle = "#241c16";
+  ctx.fillRect(0, 0, width, height);
+  const slots = Math.max(quotes.length, 1);
+  const index = Math.min(slots - 1, Math.floor(progress * slots));
+  const quote = quotes[index] || "";
+  if (image) {
+    const zoom = 1 + progress * 0.08;
+    const scale = Math.max(width / image.width, (height * 0.62) / image.height) * zoom;
+    const dw = image.width * scale;
+    const dh = image.height * scale;
+    ctx.drawImage(image, (width - dw) / 2, (height * 0.42 - dh) / 2, dw, dh);
+  }
+  ctx.fillStyle = "rgba(36, 28, 22, 0.55)";
+  ctx.fillRect(0, height * 0.58, width, height * 0.42);
+  ctx.fillStyle = "#f4efe6";
+  ctx.font = "28px Georgia, serif";
+  ctx.fillText("Memory Card", 64, height * 0.66);
+  ctx.font = "42px Georgia, serif";
+  const lines = wrapLines(ctx, quote, width - 128);
+  lines.forEach((line, i) => ctx.fillText(line, 64, height * 0.74 + i * 54));
+}
+
+function makeStoryVideo(quotes) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 720;
+  canvas.height = 1280;
+  const ctx = canvas.getContext("2d");
+  const image = ui.frame.querySelector("img");
+  const mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
+    ? "video/webm;codecs=vp9"
+    : "video/webm";
+  const stream = canvas.captureStream(30);
+  const recorder = new MediaRecorder(stream, { mimeType: mime });
+  const chunks = [];
+  const duration = Math.min(18000, 4000 + quotes.length * 3500);
+  recorder.ondataavailable = (event) => {
+    if (event.data.size) chunks.push(event.data);
+  };
+  const done = new Promise((resolve) => {
+    recorder.onstop = () => resolve(new Blob(chunks, { type: recorder.mimeType || "video/webm" }));
+  });
+  recorder.start();
+  const started = performance.now();
+  function frame(now) {
+    const progress = Math.min(1, (now - started) / duration);
+    drawStoryFrame(ctx, image, quotes, progress);
+    if (progress < 1) requestAnimationFrame(frame);
+    else recorder.stop();
+  }
+  requestAnimationFrame(frame);
+  return done;
+}
+
+ui.unlock.addEventListener("click", async () => {
+  if (!state.sessionId) return;
+  ui.unlock.disabled = true;
+  const res = await fetch(`/api/session/${state.sessionId}/unlock`, { method: "POST" });
+  const data = await res.json().catch(() => ({}));
+  ui.unlock.disabled = false;
+  if (!res.ok) {
+    setBanner(data.error || "Unlock did not finish");
+    return;
+  }
+  renderSession(data);
+  ui.videoStatus.textContent = "Unlocked. Download the card, or make the TikTok video.";
+});
+
+ui.makeVideo.addEventListener("click", async () => {
+  if (!state.quotes.length) {
+    ui.videoStatus.textContent = "Say yes to make the card before the video.";
+    return;
+  }
+  ui.makeVideo.disabled = true;
+  ui.videoStatus.textContent = "Making a vertical video from your photo and your words…";
+  try {
+    const blob = await makeStoryVideo(state.quotes);
+    const type = blob.type || "video/webm";
+    const ext = type.includes("mp4") ? "mp4" : "webm";
+    state.videoFile = new File([blob], `memory-card.${ext}`, { type });
+    ui.storyVideo.hidden = false;
+    ui.storyVideo.src = URL.createObjectURL(blob);
+    ui.share.hidden = false;
+    ui.videoStatus.textContent = "Video ready. Share sends it to TikTok when your phone can. Otherwise it downloads and opens TikTok's upload page.";
+  } catch (err) {
+    ui.videoStatus.textContent = err.message || "The video could not be made.";
+  }
+  ui.makeVideo.disabled = false;
+});
+
+ui.share.addEventListener("click", async () => {
+  const file = state.videoFile;
+  if (!file) return;
+  const text = state.quotes.join(" ");
+  if (navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: "Memory Card", text });
+      ui.videoStatus.textContent = "Share sheet opened. Choose TikTok.";
+      return;
+    } catch (err) {
+      if (err.name === "AbortError") return;
+    }
+  }
+  const url = URL.createObjectURL(file);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = file.name;
+  link.click();
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    /* clipboard may be blocked */
+  }
+  window.open("https://www.tiktok.com/tiktokstudio/upload", "_blank", "noopener");
+  ui.videoStatus.textContent = "Video downloaded and the caption copied. TikTok's upload page is open.";
+});
+
 window.speechSynthesis?.addEventListener?.("voiceschanged", () => pickVoice());
 
 fetch("/api/health")
   .then((res) => res.json())
   .then((data) => {
-    if (data.assemblyai !== "configured") setBanner(data.hint || "没有配置语音密钥。");
+    if (data.assemblyai !== "configured") setBanner(data.hint || "No speech key is configured.");
+    return restoreSession();
   })
-  .catch(() => setBanner("页面没有连上本地服务。"));
+  .catch(() => setBanner("This page could not reach the local server."));

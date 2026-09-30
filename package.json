@@ -2,7 +2,7 @@
   "name": "memory-note",
   "private": true,
   "type": "module",
-  "description": "记忆卡 — 用你自己的原话，为一张旧照片留下故事卡",
+  "description": "Memory Card — a story card for one old photo, using only your own words",
   "scripts": {
     "start": "node server.js",
     "test": "node --test test/*.js"

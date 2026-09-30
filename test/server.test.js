@@ -26,7 +26,7 @@ test("local server keeps the key off the page and blocks voice without it", asyn
 
     const page = await fetch(`${base}/`);
     const html = await page.text();
-    assert.match(html, /记忆卡/);
+    assert.match(html, /Memory Card/);
     assert.doesNotMatch(html, /ASSEMBLYAI_API_KEY\s*=/);
 
     const token = await fetch(`${base}/api/streaming-token`);
@@ -34,21 +34,26 @@ test("local server keeps the key off the page and blocks voice without it", asyn
     assert.equal(token.status, 503);
     assert.equal(tokenBody.token, undefined);
 
+    const sample = await fetch(`${base}/api/session/sample`, { method: "POST" });
+    assert.equal(sample.status, 201);
+    const sampleBody = await sample.json();
+    assert.equal(sampleBody.photoFilename, "sample-yard.png");
+
     const created = await fetch(`${base}/api/session`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ filename: "院子.jpg", dataBase64: PNG.toString("base64") }),
+      body: JSON.stringify({ filename: "courtyard.jpg", dataBase64: PNG.toString("base64") }),
     });
     assert.equal(created.status, 201);
     const session = await created.json();
-    assert.equal(session.photoFilename, "院子.jpg");
+    assert.equal(session.photoFilename, "courtyard.jpg");
     const photo = await fetch(`${base}${session.photoUrl}`);
     assert.equal(photo.headers.get("content-type"), "image/png");
 
     const turn = await fetch(`${base}/api/session/${session.id}/turn`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: "那是我爷爷" }),
+      body: JSON.stringify({ text: "That was my grandfather" }),
     });
     assert.equal(turn.status, 503);
     const turnBody = await turn.json();

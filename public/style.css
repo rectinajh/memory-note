@@ -13,7 +13,7 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body {
-  font-family: "Iowan Old Style", "Palatino Linotype", "Songti SC", "Noto Serif SC", "Source Han Serif SC", serif;
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
   color: var(--ink);
   background:
     radial-gradient(1200px 500px at 10% -10%, #fff 0%, transparent 50%),
@@ -24,16 +24,18 @@ button, input { font: inherit; }
 button { cursor: pointer; }
 .wrap { max-width: 980px; margin: 0 auto; padding: 32px 20px 80px; }
 header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-end; }
-h1 { font-size: 42px; font-weight: 500; letter-spacing: 0.08em; margin: 0; }
+h1 { font-size: 42px; font-weight: 500; letter-spacing: 0.02em; margin: 0; }
 .seal {
   border: 1.5px solid var(--seal);
   color: var(--seal);
   padding: 6px 10px;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.12em;
   font-size: 13px;
   transform: rotate(-6deg);
 }
 .lede { color: var(--muted); max-width: 40em; line-height: 1.6; }
+.offer { margin: 8px 0 0; font-size: 15px; }
+.offer strong { font-weight: 600; }
 .banner {
   background: var(--seal-soft);
   border-left: 3px solid var(--seal);
@@ -109,5 +111,16 @@ details input {
   color: var(--ink);
 }
 .tools { font-size: 13px; color: var(--muted); }
+.tools.warn { color: var(--warn); }
+.preview { display: grid; gap: 10px; }
+.preview blockquote {
+  margin: 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--seal);
+  background: #fff;
+  line-height: 1.5;
+}
+.story-video { width: min(100%, 280px); margin-top: 12px; background: #241c16; }
+#locked .status, #paid { align-items: center; }
 .ok { color: var(--ok); }
 footer { margin-top: 28px; color: var(--muted); font-size: 13px; }

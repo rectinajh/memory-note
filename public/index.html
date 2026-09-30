@@ -1,63 +1,80 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="referrer" content="no-referrer" />
-  <title>记忆卡</title>
+  <title>Memory Card</title>
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
   <main class="wrap">
     <header>
       <div>
-        <h1>记忆卡</h1>
-        <p class="lede">上传一张旧照片，用说话把你自己的故事留下来。助手只追问，不编造，也不扮演照片里的人。卡片里只有你确认过的原话。</p>
+        <h1>Memory Card</h1>
+        <p class="lede">Tell the story of one old photo. The assistant only asks. The card keeps only your words.</p>
+        <p class="offer">Free to try. <strong>$1</strong> unlocks the download and the TikTok video.</p>
       </div>
-      <div class="seal">只记原话</div>
+      <div class="seal">Verbatim</div>
     </header>
     <p id="banner" class="banner" hidden></p>
     <div class="layout">
       <section class="panel">
-        <div class="photo-frame" id="frame">还没有照片</div>
+        <div class="photo-frame" id="frame">No photo yet</div>
         <div class="row">
           <label class="file">
             <input id="file" type="file" accept="image/jpeg,image/png,image/webp,image/gif" />
-            <span>选择照片</span>
+            <span>Choose a photo</span>
           </label>
+          <button id="sample" class="ghost small" type="button">Try sample photo</button>
         </div>
         <p id="photo-name" class="status"></p>
         <div class="row">
-          <button id="start" class="primary" disabled>开始讲述</button>
-          <button id="stop" class="ghost" disabled>结束</button>
+          <button id="start" class="primary" disabled>Start telling</button>
+          <button id="stop" class="ghost" disabled>End</button>
         </div>
-        <p id="status" class="status">先选一张照片。</p>
+        <p id="status" class="status">Choose a photo first.</p>
       </section>
       <section class="panel">
-        <div id="log" class="log" aria-live="polite"></div>
+        <div id="log" class="log" aria-live="polite">
+          <p id="log-empty" class="status">The first question is who is in the photo.</p>
+        </div>
         <p id="live" class="live"></p>
-        <h2>记下的原话</h2>
+        <h2>Quotes saved</h2>
         <div id="quotes" class="chips"></div>
-        <h2>听不清、先不写</h2>
+        <h2>Unclear, left out</h2>
         <div id="unclear" class="chips"></div>
         <p id="tools" class="tools"></p>
         <details>
-          <summary>改用文字（同一套服务端工具，不经过麦克风）</summary>
+          <summary>Use text instead (same server tools, no microphone)</summary>
           <form id="text-form" class="row">
-            <input id="text-input" name="text" maxlength="500" placeholder="输入你想说的那句话" />
-            <button class="small" type="submit">发送</button>
+            <input id="text-input" name="text" maxlength="500" placeholder="Type the sentence you want to say" />
+            <button class="small" type="submit">Send</button>
           </form>
         </details>
       </section>
     </div>
     <section class="panel" id="card-panel" hidden>
-      <h2>记忆卡</h2>
-      <pre id="card" class="card"></pre>
-      <div class="row">
-        <a id="download" class="primary" href="#">下载 Markdown</a>
+      <h2>Memory Card</h2>
+      <div id="card-preview" class="preview"></div>
+      <div id="locked" class="row">
+        <button id="unlock" class="primary" type="button">Unlock all features · $1</button>
+        <p class="status">The telling stays free. This unlocks the file and the video on this computer. No card is charged.</p>
       </div>
+      <div id="paid" class="row" hidden>
+        <a id="download" class="primary" href="#">Download Markdown</a>
+        <a id="download-proof" class="ghost" href="#">Download proof.json</a>
+        <button id="make-video" class="ghost" type="button">Make TikTok video</button>
+        <button id="share" class="ghost" type="button" hidden>Share to TikTok</button>
+      </div>
+      <p id="video-status" class="status"></p>
+      <video id="story-video" class="story-video" controls hidden></video>
+      <details>
+        <summary>Markdown</summary>
+        <pre id="card" class="card"></pre>
+      </details>
     </section>
-    <footer>照片和故事只留在这台电脑的本地服务里，没有账号，也没有动态。朗读用的是浏览器自带的中文语音；打断说话即可插话。</footer>
+    <footer>The photo and the story stay on this computer's local server. There is no account and no feed. Speech uses the browser's English voice. Start talking to cut in.</footer>
   </main>
   <script src="/app.js" type="module"></script>
 </body>

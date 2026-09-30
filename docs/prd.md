@@ -1,123 +1,121 @@
-# 记忆卡 产品需求文档
+# Memory Card product requirements
 
-## 背景
+## Background
 
-很多人手里有一张旧照片，想把当时的事留下来，但一坐到照片前面就说不下去：细节模糊，不知道从哪一句起头，又怕别人（或软件）替自己编出没说过的话。他们不需要每天打开的应用，也不需要把这件事做成社交动态或纪念馆。
+People hold an old photo and want to keep what happened, then sit down and cannot start. The details are fuzzy. They do not know the first sentence. They are afraid that someone, or some software, will write words they never said. They do not need an app they open every day, and they do not need this turned into a social post or a memorial hall.
 
-记忆卡让人看着一张自己的旧照片，慢慢讲自己的故事。实时语音在旁边听、短问、被打断就停，并把用户亲口说过的连续原话记下来。只有用户明确同意之后，才交出一张可以下载、可以离开的私有故事卡。
+Memory Card lets a person look at one of their own old photos and tell the story slowly. Live speech listens beside them, asks short questions, and stops when they cut in. It keeps continuous quotes the person actually said. Only after they clearly agree does it hand over a private story card they can download and leave with.
 
-这不是逝者聊天机器人，不是葬礼或纪念堂产品，也不是信息流。
+This is not a chatbot for someone who has died, not a funeral or memorial product, and not a feed.
 
-## 用户
+## Users
 
-主要用户是想给自己的旧照片留下一段话的人：可能是自己年轻时的照片，也可能是家里人的合影。讲述者是现在的自己，故事的主人也是自己。
+The main user wants to leave a few words with one of their old photos. It might be a picture of themselves when they were young, or a family group. The teller is the person now, and the story belongs to them.
 
-他们通常一次只处理一张照片，讲完就走。他们能接受一次认真的讲述，不能接受被要求养成每日打开的习惯。
+They usually handle one photo, tell it, and leave. They can accept one careful telling. They will not accept being asked to build a daily habit.
 
-付费用户是同一批人里、希望把这次讲述做成自己认得出、能长期留下的成品的人，而不是想多买几分钟聊天的人。
+The paying user is the same person, when they want that telling turned into a finished piece they recognize and can keep. They are not buying extra minutes of chat.
 
-## 痛点
+## Pain
 
-- 对着照片发呆，不知道第一句怎么开口。
-- 记得一个场面，名字、地点、年份却含糊，怕被写成确定的事实。
-- 害怕软件发明自己没说过的话，尤其是人名和关系。
-- 不想装一个必须天天打开的应用，也不想把家事发到动态里。
+- They stare at the photo and do not know how to start.
+- They remember a scene, but the name, place, or year is fuzzy, and they do not want it written down as a certain fact.
+- They are afraid the software will invent words they never said, especially names and relationships.
+- They do not want an app they must open every day, and they do not want family matters posted as a feed.
 
-## 让人愿意用的地方
+## Why someone would use it
 
-- 有人顺着照片问，一次只问一个短问题。
-- 用户一插话，朗读就停。
-- 助手重复的是用户自己的原话，不是改写后的「更好听」的版本。
-- 卡片只在用户明确说可以之后出现。
+- Someone asks along with the photo, one short question at a time.
+- When the user cuts in, the reading stops.
+- The assistant repeats the user's own words, not a rewritten "better" version.
+- The card appears only after the user clearly says yes.
 
-## v1 范围
+## v1 scope
 
-v1 是免费、用完即走的简单路径，也是当前原型要守住的范围：
+v1 is a free path you finish and leave. It is the scope this prototype holds:
 
-- 一次一张照片。
-- 语音或文字讲述。语音能听、能短答、能被打断。
-- 只保存用户转写里连续出现、且听得清的原话。
-- 听不清就再问，不写入卡片。
-- 用户用短句明确同意后，生成私有故事卡：照片信息加上确认过的原话。
-- 卡片可以下载为 Markdown。没有账号。
+- One photo at a time.
+- Speech or text. Speech can listen, answer briefly, and be interrupted.
+- Only continuous, clearly heard quotes from the transcript are saved.
+- If a word is unclear, ask again. Do not write it onto the card.
+- After a short explicit yes, generate a private story card: photo information plus confirmed quotes.
+- The card downloads as Markdown. There is no account.
 
-当前原型已经按这个范围实现。它是本地单机服务，不是已上线的多用户产品。见 `docs/tech.md`。
+The current prototype implements this scope. It is a local single-machine server, not a launched multi-user product. See `docs/tech.md`.
 
-## 明确不做
+## Explicitly out of scope
 
-- 让照片里的人、尤其是逝者，用第一人称跟用户说话。
-- 葬礼流程、纪念堂、灵堂页面、公开悼念墙。
-- 关注、点赞、评论、信息流，或任何把故事默认公开的设计。
-- 每日提醒、连续打卡、成长任务。
-- 由模型补写用户没说过的人名、地名、年份或情节，再放进卡片。
-- 用英文音色朗读中文，或声称 AssemblyAI Voice Agent 已有中文朗读。官方音色目前没有中文。
+- Letting a person in the photo, especially someone who has died, speak to the user in the first person.
+- Funeral flows, memorial halls, shrine pages, or public mourning walls.
+- Follows, likes, comments, feeds, or any design that publishes a story by default.
+- Daily reminders, streaks, or growth tasks.
+- Having the model fill in a name, place, year, or plot the user never said, then putting that on the card.
+- Claiming that AssemblyAI Voice Agent is speaking. This prototype uses the browser English voice.
 
-## 用户流程
+## User flow
 
-1. 打开页面，上传一张照片。照片留在本机服务里。
-2. 开始讲述。语音接通后，助手先问照片里有谁。没有麦克风时改用文字，规则相同。
-3. 用户慢慢说。助手每次只追问一个点，建议顺序是：谁、在哪里、大概什么时候、还有哪一句记得的话。
-4. 用户插话时，正在读的那句停下。
-5. 一句值得留下的话，必须能在转写里原样找到，才记入「原话」。听不清的词单独标出，请用户重说。
-6. 助手问要不要写成卡片。用户这一轮用短句说「确认」或「可以」之类的明确同意，卡片才生成。
-7. 用户下载 Markdown，可以离开。不要求注册，也不要求下次再来。
+1. Open the page and upload a photo. The photo stays on the local server.
+2. Start telling. Once speech connects, the assistant asks who is in the photo. Without a microphone, use text. The rules are the same.
+3. The user speaks slowly. The assistant follows up on one point at a time. The suggested order is: who, where, roughly when, and one line they still remember.
+4. When the user cuts in, the line being read stops.
+5. A line worth keeping must be found as-is in the transcript before it is stored as a quote. Unclear words are marked separately, and the user is asked to repeat them.
+6. The assistant asks whether to write the card. The card is created only when this turn is a short explicit yes, such as "yes" or "make the card".
+7. The user downloads the Markdown and can leave. Registration is not required, and neither is coming back tomorrow.
 
-## 功能需求
+## Functional requirements
 
-照片
+Photo
 
-- 接受 jpg、png、webp、gif，单张不超过 6MB。
-- 一次会话对应一张照片。v1 不把多张照片编成一条故事。
+- Accept jpg, png, webp, and gif, one file up to 6MB.
+- One session is one photo. v1 does not weave several photos into one story.
 
-讲述
+Telling
 
-- 默认是实时语音：听用户说话，用很短的中文回应，用户可以打断。
-- 提供文字入口，走同一套记录规则。
-- 助手不扮演照片中的人，不接受「你来演我爷爷」这类要求去编故事。
-- 助手口头回复最多两句，适合朗读。口头用词靠提示约束；写进卡片的内容靠服务端硬校验。
+- The default is live speech: listen, answer in very short English, and allow interruption.
+- Provide a text entry that uses the same recording rules.
+- The assistant does not play a person in the photo, and does not accept requests such as "pretend you are my grandfather" in order to invent a story.
+- A spoken reply is at most two sentences, suitable to read aloud. Wording is constrained by the prompt. What enters the card is checked on the server.
 
-记录
+Record
 
-- `note_quote`：quote 必须是用户转写的连续子串。改写、概括、补词都拒绝。单独的「好的」「可以」不是故事原话。
-- `flag_unclear`：只标记转写里确实出现过的词，然后请用户重说。被标出的词不能进入卡片，除非后来有一句不含低置信度问题的原话把它覆盖。
-- 低置信度词即使模型想保存，也必须拒绝。
+- `note_quote`: quote must be a continuous substring of the user's transcript. Rewrites, summaries, and added words are rejected. A bare "okay" or "yes" is not a story quote.
+- `flag_unclear`: mark only a word that actually appeared in the transcript, then ask the user to repeat it. A marked word cannot enter the card unless a later clear quote covers it.
+- A low-confidence word is rejected even if the model wants to save it.
 
-确认与交付
+Confirm and deliver
 
-- `confirm_card` 只在用户当前这一轮是明确短同意时成功。同意例子包括「可以」「确认」「写成卡片」。把同意藏在长句里不算。
-- 没有已校验原话，或没有照片，不能出卡。
-- 卡片只含照片文件名、确认时间、原话，以及仍未解决的听不清的词。不收录模型编写的故事正文。
-- 用户可以下载这份 Markdown。
+- `confirm_card` succeeds only when the current turn is a short explicit yes. Examples include "yes", "okay", and "make the card". Agreement buried in a long sentence does not count.
+- Without a checked quote, or without a photo, there is no card.
+- The card contains only the photo filename, confirmation time, quotes, and unclear words that are still unresolved. It does not include a story written by the model.
+- The user can download that Markdown.
 
-失败时的表现
+When something fails
 
-- 没有可用的语音密钥时，不假装在听，也不写卡片。页面说明原因。上传照片仍可进行。
+- Without a usable speech key, do not pretend to listen, and do not write a card. The page explains why. Uploading a photo still works.
 
-## 付费档
+## Price
 
-免费路径卖的是「用完即走」：一张照片、一轮讲述、一张原话卡片。
+Free: one photo, one telling, the quotes, and the card on screen.
 
-付费不按聊天分钟计价。用户买的是自己认得出、能留下的成品。设想中的付费能力，当前原型都没有做：
+$1: every finished feature. Download the Markdown, make the vertical video from the photo and the confirmed quotes, and share that file to TikTok. There are no other paid tiers and no per-minute charge.
 
-- 把一次较长的访谈整理成一篇完整短篇，而不是只留金句。整理仍然不能发明用户没说过的事实。
-- 同一条讲述里使用多张照片。
-- 由人润色，做成可以保存的短片，或一版更完整的口述叙述。
+The video shows the photo and the words the user said. It does not invent a scene or speak as anyone in the photo.
 
-付费的判断标准是：成品像用户自己讲过的那样，并且可以拿走。不是对话更长。
+This prototype unlocks on the local session. It does not charge a card.
 
-## 成功标准
+## Success criteria
 
-- 一个不熟悉产品的人，只看页面，能在一张照片上完成：开口、被追问、打断、听到自己的原话被重复、确认、下载。
-- 卡片里每一句都能在当次转写中找到连续对应，没有模型补写的人名或情节。
-- 没听清的词不会被写成确定事实。
-- 用户没有短句同意时，不出现可下载卡片。
-- 用户不需要注册，也不需要第二天再打开。
-- 密钥不会出现在页面、下载文件或日志里。
+- Someone who does not know the product can, from the page alone, finish this on one photo: start speaking, be asked a follow-up, interrupt, hear their own quote repeated, confirm, and download.
+- Every sentence on the card has a continuous match in that session's transcript. The model did not add a name or a plot.
+- An unclear word is not written as a certain fact.
+- Without a short yes, no downloadable card appears.
+- The user does not need to register, and does not need to open it the next day.
+- The key does not appear on the page, in the download, or in the logs.
 
-## 非目标
+## Non-goals
 
-- 做家族社交网络或公开档案库。
-- 做心理咨询或悲伤辅导。产品可以安静，但不提供诊疗。
-- 自动识别照片里的人脸并猜测是谁。身份只来自用户自己的话。
-- 在 v1 里承诺短片、多图长文或人工润色。那些是付费成品，不是当前原型。
-- 把浏览器朗读说成 AssemblyAI 的中文语音代理。
+- A family social network or a public archive.
+- Counseling or grief support. The product can be quiet. It does not provide treatment.
+- Recognizing faces in the photo and guessing who they are. Identity comes only from what the user says.
+- A multi-photo essay or a human edit. The $1 video is the photo plus the confirmed quotes.
+- Describing browser speech as an AssemblyAI voice agent.
